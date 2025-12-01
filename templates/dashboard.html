@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Crypto Bot - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-robot"></i>
+                <h1>AI Crypto Bot</h1>
+            </div>
+            <div class="status-badge" id="bot-status">
+                <i class="fas fa-circle"></i>
+                <span>Остановлен</span>
+            </div>
+            <div class="controls">
+                <button class="btn btn-success" id="btn-start">
+                    <i class="fas fa-play"></i> Запустить
+                </button>
+                <button class="btn btn-warning" id="btn-pause" disabled>
+                    <i class="fas fa-pause"></i> Пауза
+                </button>
+                <button class="btn btn-danger" id="btn-stop" disabled>
+                    <i class="fas fa-stop"></i> Остановить
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon balance">
+                    <i class="fas fa-wallet"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Баланс</div>
+                    <div class="stat-value" id="balance">$10,000.00</div>
+                    <div class="stat-change positive" id="balance-change">+0.00%</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon pnl">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Прибыль/Убыток</div>
+                    <div class="stat-value" id="total-pnl">$0.00</div>
+                    <div class="stat-change" id="pnl-change">0.00%</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon trades">
+                    <i class="fas fa-exchange-alt"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Сделки</div>
+                    <div class="stat-value" id="total-trades">0</div>
+                    <div class="stat-meta">
+                        <span class="win" id="win-trades">0W</span> / 
+                        <span class="loss" id="loss-trades">0L</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon winrate">
+                    <i class="fas fa-percentage"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Win Rate</div>
+                    <div class="stat-value" id="win-rate">0%</div>
+                    <div class="stat-meta" id="sharpe">Sharpe: 0.00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            <!-- Left Column -->
+            <div class="left-column">
+                <!-- PnL Chart -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-chart-area"></i> График P&L</h3>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="pnl-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Open Positions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-briefcase"></i> Открытые позиции</h3>
+                        <span class="badge" id="positions-count">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="positions-table" id="positions-table">
+                                <thead>
+                                    <tr>
+                                        <th>Символ</th>
+                                        <th>Сторона</th>
+                                        <th>Вход</th>
+                                        <th>Текущая</th>
+                                        <th>P&L</th>
+                                        <th>Время</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="positions-body">
+                                    <tr class="empty-state">
+                                        <td colspan="6">Нет открытых позиций</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Trades -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-history"></i> История сделок</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-container">
+                            <table class="trades-table" id="trades-table">
+                                <thead>
+                                    <tr>
+                                        <th>Время</th>
+                                        <th>Символ</th>
+                                        <th>Сторона</th>
+                                        <th>P&L</th>
+                                        <th>%</th>
+                                        <th>Причина</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="trades-body">
+                                    <tr class="empty-state">
+                                        <td colspan="6">Нет завершённых сделок</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="right-column">
+                <!-- Bot Info -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-info-circle"></i> Информация</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">Статус:</span>
+                                <span class="info-value" id="info-status">Остановлен</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Время работы:</span>
+                                <span class="info-value" id="info-uptime">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Символ:</span>
+                                <span class="info-value" id="info-symbol">BTC/USDT</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Интервал:</span>
+                                <span class="info-value" id="info-interval">15m</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">ML Порог:</span>
+                                <span class="info-value" id="info-ml-threshold">68%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Риск:</span>
+                                <span class="info-value" id="info-risk">1%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Max DD:</span>
+                                <span class="info-value" id="info-max-dd">0%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Текущий DD:</span>
+                                <span class="info-value" id="info-current-dd">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Last Signal -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-signal"></i> Последний сигнал</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="last-signal" class="signal-container">
+                            <div class="empty-state">Сигналов пока нет</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Logs -->
+                <div class="card logs-card">
+                    <div class="card-header">
+                        <h3><i class="fas fa-terminal"></i> Логи</h3>
+                        <button class="btn-sm" id="btn-clear-logs">
+                            <i class="fas fa-eraser"></i> Очистить
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="logs-container" id="logs-container">
+                            <div class="log-entry info">
+                                <span class="log-time">[--:--:--]</span>
+                                <span class="log-message">Ожидание запуска...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <span>AI Crypto Bot v2.0</span>
+                <span class="separator">|</span>
+                <span>Connected: <span id="connection-status" class="connected">✓</span></span>
+                <span class="separator">|</span>
+                <span>Last Update: <span id="last-update">--:--:--</span></span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,338 @@
+"""
+Flask Web Dashboard
+===================
+Real-time web interface for monitoring trading bot
+"""
+
+import logging
+from datetime import datetime
+from flask import Flask, render_template, jsonify, request
+from flask_socketio import SocketIO, emit
+import threading
+import time
+from pathlib import Path
+import sys
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from src.config.config_loader import get_config
+
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
+app = Flask(
+    __name__,
+    template_folder=str(Path(__file__).parent.parent.parent / 'templates'),
+    static_folder=str(Path(__file__).parent.parent.parent / 'static')
+)
+app.config['SECRET_KEY'] = 'ai-crypto-bot-secret-key-2025'
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# Global bot state
+bot_state = {
+    'status': 'stopped',  # stopped, running, paused
+    'start_time': None,
+    'balance': 10000.0,
+    'initial_balance': 10000.0,
+    'total_pnl': 0.0,
+    'total_pnl_pct': 0.0,
+    'open_positions': [],
+    'closed_trades': [],
+    'total_trades': 0,
+    'winning_trades': 0,
+    'losing_trades': 0,
+    'win_rate': 0.0,
+    'current_drawdown': 0.0,
+    'max_drawdown': 0.0,
+    'sharpe_ratio': 0.0,
+    'last_signal': None,
+    'ml_predictions': [],
+    'logs': []
+}
+
+# Bot controller reference
+bot_controller = None
+
+
+def set_bot_controller(controller):
+    """Set reference to bot controller"""
+    global bot_controller
+    bot_controller = controller
+
+
+@app.route('/')
+def dashboard():
+    """Main dashboard page"""
+    return render_template('dashboard.html')
+
+
+@app.route('/api/status')
+def api_status():
+    """Get bot status"""
+    return jsonify(bot_state)
+
+
+@app.route('/api/config')
+def api_config():
+    """Get bot configuration"""
+    config = get_config()
+    return jsonify({
+        'symbols': config.get('symbols', default=['BTC/USDT']),
+        'interval': config.get('interval', default='15m'),
+        'risk_per_trade': config.get('risk', 'risk_per_trade', default=0.01),
+        'max_positions': config.get('risk', 'max_open_positions', default=3),
+        'ml_threshold': config.get('trading', 'entry', 'ml_probability_min', default=0.6),
+        'sentiment_enabled': config.get('sentiment', 'enabled', default=True),
+        'telegram_enabled': config.get('telegram', 'enabled', default=False)
+    })
+
+
+@app.route('/api/trades')
+def api_trades():
+    """Get trade history"""
+    return jsonify({
+        'open': bot_state['open_positions'],
+        'closed': bot_state['closed_trades'][-50:]  # Last 50 trades
+    })
+
+
+@app.route('/api/performance')
+def api_performance():
+    """Get performance metrics"""
+    return jsonify({
+        'total_trades': bot_state['total_trades'],
+        'winning_trades': bot_state['winning_trades'],
+        'losing_trades': bot_state['losing_trades'],
+        'win_rate': bot_state['win_rate'],
+        'total_pnl': bot_state['total_pnl'],
+        'total_pnl_pct': bot_state['total_pnl_pct'],
+        'sharpe_ratio': bot_state['sharpe_ratio'],
+        'max_drawdown': bot_state['max_drawdown'],
+        'current_drawdown': bot_state['current_drawdown']
+    })
+
+
+@app.route('/api/control/start', methods=['POST'])
+def api_start():
+    """Start the bot"""
+    if bot_controller:
+        try:
+            bot_controller.start()
+            bot_state['status'] = 'running'
+            bot_state['start_time'] = datetime.now().isoformat()
+            broadcast_status_update()
+            return jsonify({'success': True, 'message': 'Bot started'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # Demo mode - simulate bot start
+    bot_state['status'] = 'running'
+    bot_state['start_time'] = datetime.now().isoformat()
+    broadcast_status_update()
+    broadcast_log({'level': 'INFO', 'message': '🚀 Bot started in DEMO mode'})
+    return jsonify({'success': True, 'message': 'Bot started (demo mode)'})
+
+
+@app.route('/api/control/stop', methods=['POST'])
+def api_stop():
+    """Stop the bot"""
+    if bot_controller:
+        try:
+            bot_controller.stop()
+            bot_state['status'] = 'stopped'
+            broadcast_status_update()
+            return jsonify({'success': True, 'message': 'Bot stopped'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # Demo mode - simulate bot stop
+    bot_state['status'] = 'stopped'
+    broadcast_status_update()
+    broadcast_log({'level': 'INFO', 'message': '⏹️ Bot stopped'})
+    return jsonify({'success': True, 'message': 'Bot stopped (demo mode)'})
+
+
+@app.route('/api/control/pause', methods=['POST'])
+def api_pause():
+    """Pause the bot"""
+    if bot_controller:
+        try:
+            bot_controller.pause()
+            bot_state['status'] = 'paused'
+            broadcast_status_update()
+            return jsonify({'success': True, 'message': 'Bot paused'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # Demo mode - simulate bot pause
+    bot_state['status'] = 'paused'
+    broadcast_status_update()
+    broadcast_log({'level': 'WARNING', 'message': '⏸️ Bot paused'})
+    return jsonify({'success': True, 'message': 'Bot paused (demo mode)'})
+
+
+@app.route('/api/logs')
+def api_logs():
+    """Get recent logs"""
+    return jsonify({
+        'logs': bot_state['logs'][-100:]  # Last 100 log entries
+    })
+
+
+# WebSocket events
+@socketio.on('connect')
+def handle_connect():
+    """Client connected"""
+    logger.info('[WEB] Client connected')
+    emit('status_update', bot_state)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Client disconnected"""
+    logger.info('[WEB] Client disconnected')
+
+
+@socketio.on('request_update')
+def handle_request_update():
+    """Client requested update"""
+    emit('status_update', bot_state)
+
+
+def broadcast_status_update():
+    """Broadcast status update to all connected clients"""
+    socketio.emit('status_update', bot_state, namespace='/')
+
+
+def broadcast_trade_update(trade_data):
+    """Broadcast trade update"""
+    socketio.emit('trade_update', trade_data, namespace='/')
+
+
+def broadcast_log(log_data):
+    """Broadcast log message"""
+    bot_state['logs'].append({
+        'timestamp': datetime.now().isoformat(),
+        'level': log_data.get('level', 'INFO'),
+        'message': log_data.get('message', '')
+    })
+    # Keep only last 200 logs
+    if len(bot_state['logs']) > 200:
+        bot_state['logs'] = bot_state['logs'][-200:]
+    
+    socketio.emit('log_update', log_data, namespace='/')
+
+
+def update_bot_state(**kwargs):
+    """Update bot state and broadcast"""
+    bot_state.update(kwargs)
+    broadcast_status_update()
+
+
+def run_web_server(host='0.0.0.0', port=5000, debug=False):
+    """Run Flask web server"""
+    logger.info(f'[WEB] Starting web dashboard on http://{host}:{port}')
+    socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+
+
+def start_web_server_thread(host='0.0.0.0', port=5000):
+    """Start web server in separate thread"""
+    thread = threading.Thread(
+        target=run_web_server,
+        args=(host, port, False),
+        daemon=True
+    )
+    thread.start()
+    logger.info(f'[WEB] Dashboard started at http://{host}:{port}')
+    return thread
+
+
+def start_demo_updates():
+    """Start demo data updates for testing"""
+    import random
+    
+    def update_demo_data():
+        while True:
+            if bot_state['status'] == 'running':
+                # Simulate balance changes
+                change = random.uniform(-50, 100)
+                bot_state['balance'] = max(5000, bot_state['balance'] + change)
+                bot_state['total_pnl'] = bot_state['balance'] - bot_state['initial_balance']
+                bot_state['total_pnl_pct'] = (bot_state['total_pnl'] / bot_state['initial_balance']) * 100
+                
+                # Random log messages
+                if random.random() < 0.1:
+                    messages = [
+                        ('INFO', '📊 Анализ рынка...'),
+                        ('INFO', '🤖 ML модель: BUY signal detected (65% confidence)'),
+                        ('SUCCESS', '✅ Позиция открыта: BTC/USDT LONG @ $95,234'),
+                        ('INFO', '📈 Обновление индикаторов...'),
+                        ('WARNING', '⚠️ Низкая волатильность рынка'),
+                    ]
+                    level, msg = random.choice(messages)
+                    broadcast_log({'level': level, 'message': msg})
+                
+                # Simulate trades
+                if random.random() < 0.05 and len(bot_state['open_positions']) < 2:
+                    side = random.choice(['long', 'short'])
+                    price = random.uniform(94000, 96000)
+                    bot_state['open_positions'].append({
+                        'symbol': 'BTC/USDT',
+                        'side': side,
+                        'entry_price': price,
+                        'current_price': price,
+                        'pnl': 0,
+                        'pnl_pct': 0,
+                        'entry_time': datetime.now().isoformat()
+                    })
+                    broadcast_log({'level': 'SUCCESS', 'message': f'🎯 Opened {side.upper()} @ ${price:.2f}'})
+                
+                # Update open positions
+                for pos in bot_state['open_positions']:
+                    pos['current_price'] += random.uniform(-100, 100)
+                    multiplier = 1 if pos['side'] == 'long' else -1
+                    pos['pnl'] = (pos['current_price'] - pos['entry_price']) * 0.01 * multiplier
+                    pos['pnl_pct'] = ((pos['current_price'] - pos['entry_price']) / pos['entry_price']) * 100 * multiplier
+                
+                # Close positions randomly
+                if bot_state['open_positions'] and random.random() < 0.03:
+                    pos = bot_state['open_positions'].pop(0)
+                    trade = {
+                        'symbol': pos['symbol'],
+                        'side': pos['side'],
+                        'entry_price': pos['entry_price'],
+                        'exit_price': pos['current_price'],
+                        'pnl': pos['pnl'],
+                        'pnl_pct': pos['pnl_pct'],
+                        'exit_time': datetime.now().isoformat(),
+                        'exit_reason': random.choice(['take_profit', 'stop_loss', 'trailing_stop'])
+                    }
+                    bot_state['closed_trades'].append(trade)
+                    bot_state['total_trades'] += 1
+                    if pos['pnl'] > 0:
+                        bot_state['winning_trades'] += 1
+                    else:
+                        bot_state['losing_trades'] += 1
+                    bot_state['win_rate'] = (bot_state['winning_trades'] / bot_state['total_trades']) * 100 if bot_state['total_trades'] > 0 else 0
+                    
+                    result = '✅ Profit' if pos['pnl'] > 0 else '❌ Loss'
+                    broadcast_log({'level': 'SUCCESS' if pos['pnl'] > 0 else 'ERROR', 
+                                  'message': f'{result}: Closed {pos["side"].upper()} @ ${pos["current_price"]:.2f} | P&L: ${pos["pnl"]:.2f}'})
+                
+                broadcast_status_update()
+            
+            time.sleep(2)  # Update every 2 seconds
+    
+    demo_thread = threading.Thread(target=update_demo_data, daemon=True)
+    demo_thread.start()
+    logger.info('[WEB] Demo mode enabled - generating test data')
+
+
+if __name__ == '__main__':
+    # Test server with demo data
+    logging.basicConfig(level=logging.INFO)
+    start_demo_updates()
+    run_web_server(debug=True)

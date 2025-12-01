@@ -1,0 +1,3 @@
+id,timestamp,event_type,severity,message,details
+1,2025-12-01T02:01:51.872436,system,info,System started successfully,All components initialized
+2,2025-12-01T02:01:51.879728,error,warning,API rate limit approaching,Used 80% of rate limit

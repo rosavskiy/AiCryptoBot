@@ -1,0 +1,207 @@
+# AiCryptoBot Configuration
+# ==========================
+
+# Exchange Settings
+exchange:
+  name: bybit
+  testnet: true
+  rate_limit: true
+  default_type: linear  # linear = USDT perpetual futures
+  
+# Trading Pairs
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+  # Add more pairs for multi-symbol trading
+
+# Timeframes
+timeframe:
+  trading: 15m  # Main trading timeframe
+  data_fetch: 1h  # Higher timeframe for context
+  lookback_bars: 1000
+
+# Machine Learning Configuration
+ml:
+  model_type: RandomForest
+  n_estimators: 100
+  min_samples_split: 10
+  max_depth: 15
+  random_state: 42
+  
+  # Features to use
+  features:
+    - RSI
+    - ATR
+    - volume
+    - SMA_50
+    - SMA_200
+    - MACD
+    - MACD_signal
+    - BB_upper
+    - BB_lower
+    - volume_sma_ratio
+  
+  # Walk-Forward Validation
+  walk_forward:
+    train_period_days: 90
+    test_period_days: 30
+    step_days: 15
+  
+  # Model Performance Thresholds
+  min_accuracy: 0.55
+  min_precision: 0.58
+  confidence_threshold: 0.60
+  
+  # Phase 2: LSTM Neural Network
+  lstm_sequence_length: 60        # Lookback period (bars)
+  lstm_hidden_size: 128           # Hidden layer size
+  lstm_num_layers: 2              # Number of LSTM layers
+  lstm_dropout: 0.2               # Dropout rate for regularization
+  lstm_learning_rate: 0.001       # Learning rate
+  lstm_batch_size: 32             # Batch size for training
+  lstm_epochs: 50                 # Training epochs
+  
+  # Phase 2: Ensemble Configuration
+  ensemble_rf_weight: 0.4         # RandomForest weight (40%)
+  ensemble_lstm_weight: 0.4       # LSTM weight (40%)
+  ensemble_sentiment_weight: 0.2  # Sentiment weight (20%)
+
+# Technical Indicators Configuration
+indicators:
+  rsi:
+    period: 14
+    overbought: 70
+    oversold: 30
+  
+  atr:
+    period: 14
+  
+  sma:
+    fast: 50
+    slow: 200
+  
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  
+  bollinger:
+    period: 20
+    std: 2
+
+# Risk Management
+risk:
+  # Position Sizing
+  risk_per_trade: 0.01  # 1% of account per trade
+  max_position_size: 0.1  # Max 10% of account in one position
+  
+  # Stop Loss & Take Profit
+  stop_loss_atr_multiplier: 2.5  # SL = 2.5x ATR (было 2.0, увеличено для меньших ложных срабатываний)
+  take_profit_atr_multiplier: 4.0  # TP = 4x ATR (было 3.0, увеличено для лучшего R:R)
+  trailing_stop: true
+  trailing_stop_activation: 0.02  # Activate after 2% profit (было 1.5%)
+  
+  # Portfolio Limits
+  max_open_positions: 2  # Снижено с 3 до 2 для лучшего управления риском
+  max_daily_trades: 5    # Снижено с 10 до 5 для избежания overtrading
+  max_drawdown_percent: 10.0  # Снижено с 15% до 10% для более консервативного подхода
+  
+  # Leverage
+  leverage: 1  # Start with 1x, increase carefully
+
+# Sentiment Analysis
+sentiment:
+  enabled: true
+  sources:
+    - cryptopanic
+    - newsapi
+  
+  # Thresholds
+  min_score: -0.1  # Don't trade on negative sentiment
+  max_score: 1.0
+  
+  # Caching
+  cache_duration_minutes: 30
+  
+  # Phase 2: FinBERT settings
+  finbert:
+    enabled: true                  # Use FinBERT for sentiment (Phase 2)
+    model_name: "ProsusAI/finbert"
+  
+  # CryptoPanic API
+  cryptopanic_api_key: ""          # Get from https://cryptopanic.com/
+  sentiment_threshold: 0.1         # Minimum sentiment score to consider
+  max_news_age_hours: 24           # Only use recent news
+
+# Trading Logic
+trading:
+  # Entry Conditions
+  entry:
+    ml_probability_min: 0.68  # Увеличено с 0.60 для более качественных сигналов
+    sentiment_min: -0.05  # Увеличено с -0.1 для избежания негативного sentiment
+    volume_threshold: 1.3  # Увеличено с 1.2x для подтверждения тренда
+    min_atr_percent: 0.5   # Новый фильтр: минимальная волатильность 0.5% для избежания флета
+  
+  # Exit Conditions
+  exit:
+    take_profit_enabled: true
+    stop_loss_enabled: true
+    time_based_exit_hours: 24  # Close position after 24h
+  
+  # Order Types
+  order_type: market  # market or limit
+  slippage_tolerance: 0.001  # 0.1%
+
+# Backtesting
+backtest:
+  initial_capital: 10000  # USDT
+  commission: 0.0006  # 0.06% per trade (Bybit taker fee)
+  slippage: 0.0005  # 0.05%
+  
+  # Metrics to calculate
+  metrics:
+    - sharpe_ratio
+    - max_drawdown
+    - win_rate
+    - profit_factor
+    - avg_trade_duration
+
+# Logging & Monitoring
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Separate log files
+  files:
+    main: logs/trading.log
+    trades: logs/trades.log
+    errors: logs/errors.log
+  
+  # Database logging
+  database:
+    enabled: true
+    path: data/trading.db
+
+# Phase 2: Telegram Notifications
+telegram:
+  bot_token: ""                    # Get from @BotFather
+  chat_id: ""                      # Your Telegram chat ID
+  
+  # Notification settings
+  notify_trades: true              # Alert on trade open/close
+  notify_signals: true             # Alert on new signals
+  notify_errors: true              # Alert on errors
+  notify_daily_summary: true       # Daily performance summary
+  
+# Email Notifications (optional)
+email:
+  enabled: false
+  smtp_server: ""
+  from_email: ""
+  to_email: ""
+
+# Performance Optimization
+performance:
+  use_multiprocessing: false  # For multi-symbol trading
+  max_workers: 4
+  websocket_enabled: false  # Phase 2: real-time data
