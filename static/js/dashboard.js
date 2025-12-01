@@ -187,7 +187,19 @@ function updateConnectionStatus(connected) {
 function updateUptime(startTimeStr) {
     if (!startTimeStr) return;
     
-    const startTime = new Date(startTimeStr);
+    // Handle both ISO string and Unix timestamp (in ms)
+    let startTime;
+    if (typeof startTimeStr === 'number') {
+        // Unix timestamp in milliseconds
+        startTime = new Date(startTimeStr);
+    } else if (typeof startTimeStr === 'string' && !isNaN(startTimeStr)) {
+        // String number (timestamp)
+        startTime = new Date(parseInt(startTimeStr));
+    } else {
+        // ISO string
+        startTime = new Date(startTimeStr);
+    }
+    
     const now = new Date();
     const diff = now - startTime;
     

@@ -161,7 +161,7 @@ def api_start():
         try:
             bot_controller.start()
             bot_state['status'] = 'running'
-            bot_state['start_time'] = datetime.now().isoformat()
+            bot_state['start_time'] = int(datetime.now().timestamp() * 1000)  # Unix timestamp in ms
             broadcast_status_update()
             return jsonify({'success': True, 'message': 'Bot started'})
         except Exception as e:
@@ -169,7 +169,7 @@ def api_start():
     
     # Demo mode - simulate bot start
     bot_state['status'] = 'running'
-    bot_state['start_time'] = datetime.now().isoformat()
+    bot_state['start_time'] = int(datetime.now().timestamp() * 1000)  # Unix timestamp in ms
     broadcast_status_update()
     broadcast_log({'level': 'INFO', 'message': '🚀 Bot started in DEMO mode'})
     return jsonify({'success': True, 'message': 'Bot started (demo mode)'})
