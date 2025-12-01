@@ -19,28 +19,33 @@ logger = logging.getLogger(__name__)
 
 
 class MarketDataFetcher:
-    """Fetches and processes market data from Bybit"""
+    """Fetches and processes market data from exchange"""
     
-    def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = True):
+    def __init__(self, api_key: str = None, api_secret: str = None, testnet: bool = None):
         """
         Initialize market data fetcher
         
         Args:
-            api_key: Bybit API key (optional for public data)
-            api_secret: Bybit API secret (optional for public data)
-            testnet: Use testnet if True, mainnet if False
+            api_key: Exchange API key (optional for public data)
+            api_secret: Exchange API secret (optional for public data)
+            testnet: Use testnet if True, mainnet if False (reads from config if None)
         """
         config = get_config()
+        
+        # Get exchange name from config
+        exchange_name = config.get('exchange', 'name', default='bybit')
         
         # Get credentials
         if api_key is None or api_secret is None:
             creds = config.get_api_credentials()
             api_key = creds['api_key']
             api_secret = creds['api_secret']
-            testnet = creds['testnet']
+            if testnet is None:
+                testnet = creds['testnet']
         
-        # Initialize exchange
-        self.exchange = ccxt.bybit({
+        # Initialize exchange dynamically
+        exchange_class = getattr(ccxt, exchange_name)
+        self.exchange = exchange_class({
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True,
@@ -52,12 +57,13 @@ class MarketDataFetcher:
         # Enable testnet mode
         if testnet:
             self.exchange.set_sandbox_mode(True)
-            logger.info("[TESTNET] Bybit TESTNET mode enabled")
+            logger.info(f"[TESTNET] {exchange_name.upper()} TESTNET mode enabled")
         else:
-            logger.warning("[WARNING] Bybit MAINNET mode - trading with real money!")
+            logger.warning(f"[WARNING] {exchange_name.upper()} MAINNET mode - trading with real money!")
         
         self.config = config
         self.testnet = testnet
+        self.exchange_name = exchange_name
     
     def fetch_ohlcv(
         self,
