@@ -277,34 +277,40 @@ def api_start():
 def update_bot_state_from_executor(result):
     """Update bot state from trading executor results"""
     try:
-        # Update from executor state
-        if hasattr(trading_bot_instance, 'portfolio_manager'):
-            pm = trading_bot_instance.portfolio_manager
-            bot_state['balance'] = pm.get_total_value()
-            bot_state['total_pnl'] = pm.total_pnl
-            bot_state['total_pnl_pct'] = pm.total_pnl_pct
-            bot_state['open_positions'] = [
-                {
-                    'symbol': pos.symbol,
-                    'side': pos.side,
-                    'size': pos.size,
-                    'entry_price': pos.entry_price,
-                    'current_price': pos.current_price if hasattr(pos, 'current_price') else 0,
-                    'pnl': pos.unrealized_pnl if hasattr(pos, 'unrealized_pnl') else 0,
-                    'pnl_pct': pos.unrealized_pnl_pct if hasattr(pos, 'unrealized_pnl_pct') else 0
-                }
-                for pos in pm.positions
-            ]
+        # Update from executor state (RiskManager = portfolio_manager)
+        if hasattr(trading_bot_instance, 'risk_manager'):
+            rm = trading_bot_instance.risk_manager
             
-            # Update stats
-            closed_trades = pm.get_closed_trades()
-            bot_state['closed_trades'] = closed_trades[-50:]  # Last 50 trades
-            bot_state['total_trades'] = len(closed_trades)
-            bot_state['winning_trades'] = sum(1 for t in closed_trades if t.get('pnl', 0) > 0)
-            bot_state['losing_trades'] = sum(1 for t in closed_trades if t.get('pnl', 0) < 0)
-            bot_state['win_rate'] = (bot_state['winning_trades'] / max(bot_state['total_trades'], 1)) * 100
-            bot_state['current_drawdown'] = pm.current_drawdown
-            bot_state['max_drawdown'] = pm.max_drawdown
+            # Update balance from risk manager
+            bot_state['balance'] = rm.current_capital
+            bot_state['total_pnl'] = rm.total_pnl
+            bot_state['total_pnl_pct'] = (rm.total_pnl / rm.initial_capital * 100) if rm.initial_capital > 0 else 0
+            
+            # Update positions from executor
+            bot_state['open_positions'] = []
+            if hasattr(trading_bot_instance, 'active_positions'):
+                for symbol, pos in trading_bot_instance.active_positions.items():
+                    bot_state['open_positions'].append({
+                        'symbol': symbol,
+                        'side': pos.get('side', 'long'),
+                        'size': pos.get('size', 0),
+                        'entry_price': pos.get('entry_price', 0),
+                        'current_price': pos.get('current_price', 0),
+                        'pnl': pos.get('pnl', 0),
+                        'pnl_pct': pos.get('pnl_pct', 0)
+                    })
+            
+            # Update stats from trade logger
+            if hasattr(trading_bot_instance, 'trade_logger'):
+                trades = trading_bot_instance.trade_logger.get_trades(limit=100)
+                bot_state['closed_trades'] = trades[-50:]  # Last 50 trades
+                bot_state['total_trades'] = len(trades)
+                bot_state['winning_trades'] = sum(1 for t in trades if t.get('pnl', 0) > 0)
+                bot_state['losing_trades'] = sum(1 for t in trades if t.get('pnl', 0) < 0)
+                bot_state['win_rate'] = (bot_state['winning_trades'] / max(bot_state['total_trades'], 1)) * 100
+            
+            bot_state['current_drawdown'] = rm.current_drawdown
+            bot_state['max_drawdown'] = rm.max_drawdown
             
     except Exception as e:
         logger.error(f'[BOT] Error updating state: {e}', exc_info=True)
