@@ -152,6 +152,9 @@ def api_performance():
 @app.route('/api/control/start', methods=['POST'])
 def api_start():
     """Start the bot"""
+    # WARNING: This is demo mode only!
+    # Real trading bot runs via systemd: systemctl status aibot-trading
+    
     # Start news scheduler if not running
     global news_scheduler
     if news_scheduler is None or not news_scheduler.is_running():
@@ -161,18 +164,18 @@ def api_start():
         try:
             bot_controller.start()
             bot_state['status'] = 'running'
-            bot_state['start_time'] = int(datetime.now().timestamp() * 1000)  # Unix timestamp in ms
+            bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
             broadcast_status_update()
             return jsonify({'success': True, 'message': 'Bot started'})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
     
-    # Demo mode - simulate bot start
+    # Demo mode - NOT REAL TRADING
     bot_state['status'] = 'running'
-    bot_state['start_time'] = int(datetime.now().timestamp() * 1000)  # Unix timestamp in ms
+    bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
     broadcast_status_update()
-    broadcast_log({'level': 'INFO', 'message': '🚀 Bot started in DEMO mode'})
-    return jsonify({'success': True, 'message': 'Bot started (demo mode)'})
+    broadcast_log({'level': 'WARNING', 'message': '⚠️ DEMO MODE: This is simulation only. Real bot runs via systemd service.'})
+    return jsonify({'success': True, 'message': 'Demo bot started (NOT real trading)', 'warning': 'Use systemd service for real trading'})
 
 
 @app.route('/api/control/stop', methods=['POST'])
@@ -225,22 +228,33 @@ def api_logs():
 def api_logs_history():
     """Get historical logs from file"""
     try:
-        # Try trading.log first (main bot logs), fallback to dashboard.log
-        log_files = [
-            Path(__file__).parent.parent.parent / 'logs' / 'trading.log',
-            Path(__file__).parent.parent.parent / 'logs' / 'dashboard.log'
-        ]
+        # Get filter parameter (all, trading, system, errors)
+        log_filter = request.args.get('filter', 'all')
         
-        log_file = None
-        for f in log_files:
-            if f.exists():
-                log_file = f
-                break
+        # Read both log files and merge
+        log_dir = Path(__file__).parent.parent.parent / 'logs'
+        all_logs = []
         
-        if not log_file:
+        # Read trading logs (main bot)
+        trading_log = log_dir / 'trading.log'
+        if trading_log.exists():
+            with open(trading_log, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                for line in lines[-1000:]:  # Last 1000 lines
+                    all_logs.append(('trading', line))
+        
+        # Read dashboard logs (web server)
+        dashboard_log = log_dir / 'dashboard.log'
+        if dashboard_log.exists():
+            with open(dashboard_log, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                for line in lines[-500:]:  # Last 500 lines
+                    all_logs.append(('dashboard', line))
+        
+        if not all_logs:
             return jsonify({
                 'logs': [],
-                'message': 'No log file found yet'
+                'message': 'No log files found yet'
             })
         
         # Read last 500 lines from log file
@@ -250,60 +264,77 @@ def api_logs_history():
         
         # Parse logs into structured format
         parsed_logs = []
-        for line in last_lines:
+        for source, line in all_logs:
             line = line.strip()
             if not line:
                 continue
             
-            # Try to parse timestamp and message
             try:
-                # Format: 2025-12-01 16:36:44,120 [INFO] message
-                parts = line.split('[', 1)
-                if len(parts) >= 2:
-                    timestamp_part = parts[0].strip()
-                    rest = parts[1]
-                    level_end = rest.find(']')
-                    if level_end > 0:
-                        level = rest[:level_end].strip()
-                        message = rest[level_end+1:].strip()
-                        
-                        # Categorize
-                        category = 'general'
-                        if '[NEWS]' in message or 'NEWS' in message:
-                            category = 'news'
-                        elif '[ML]' in message or 'prediction' in message.lower():
-                            category = 'ml'
-                        elif '[TRADE]' in message or 'сделк' in message.lower():
-                            category = 'trade'
-                        elif 'ERROR' in level or 'error' in message.lower():
-                            category = 'error'
-                        
-                        parsed_logs.append({
-                            'timestamp': timestamp_part,
-                            'level': level,
-                            'category': category,
-                            'message': message
-                        })
-                    else:
-                        # Fallback if can't parse properly
-                        parsed_logs.append({
-                            'timestamp': timestamp_part,
-                            'level': 'INFO',
-                            'category': 'general',
-                            'message': line
-                        })
-            except:
-                # If parsing fails, add raw line
+                timestamp_part = ''
+                level = 'INFO'
+                message = line
+                category = 'system' if source == 'dashboard' else 'trading'
+                
+                # Parse format: 2025-12-01 20:33:55,533 - module - LEVEL - message
+                if ' - ' in line:
+                    parts = line.split(' - ', 3)
+                    if len(parts) >= 4:
+                        timestamp_part = parts[0]
+                        level = parts[2]
+                        message = parts[3]
+                
+                # Categorize by message content
+                if source == 'trading':
+                    if any(x in message for x in ['[NEWS]', '[CRYPTOPANIC]', 'Fetched 0 news']):
+                        category = 'news'
+                    elif any(x in message for x in ['[ML]', '[TRAIN]', 'model', 'prediction', 'features']):
+                        category = 'ml'
+                    elif any(x in message for x in ['[SIGNAL]', '[TRADE]', '[ORDER]', 'position', 'BUY', 'SELL']):
+                        category = 'trade'
+                    elif any(x in message for x in ['[ANALYZE]', '[DATA]', 'Fetching', 'candles']):
+                        category = 'analysis'
+                    elif any(x in message for x in ['[PORTFOLIO]', 'Capital', 'Positions']):
+                        category = 'portfolio'
+                    elif 'ERROR' in level or '[ERROR]' in message:
+                        category = 'error'
+                    elif 'WARNING' in level or '[WARNING]' in message:
+                        category = 'warning'
+                
+                # Apply filter
+                if log_filter == 'trading' and category not in ['trade', 'analysis', 'portfolio', 'ml']:
+                    continue
+                elif log_filter == 'system' and source != 'dashboard':
+                    continue
+                elif log_filter == 'errors' and category not in ['error', 'warning']:
+                    continue
+                elif log_filter == 'ml' and category != 'ml':
+                    continue
+                
+                parsed_logs.append({
+                    'timestamp': timestamp_part,
+                    'level': level,
+                    'category': category,
+                    'source': source,
+                    'message': message
+                })
+                
+            except Exception:
                 parsed_logs.append({
                     'timestamp': '',
                     'level': 'INFO',
-                    'category': 'general',
+                    'category': 'system',
+                    'source': source,
                     'message': line
                 })
         
+        # Sort by timestamp (newest first)
+        parsed_logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        parsed_logs = parsed_logs[:500]
+        
         return jsonify({
             'logs': parsed_logs,
-            'total': len(parsed_logs)
+            'total': len(parsed_logs),
+            'filter': log_filter
         })
         
     except Exception as e:
