@@ -43,6 +43,14 @@
 - Удалённое управление ботом (/start, /stop, /status)
 - Мониторинг позиций и баланса
 
+### 🌐 Web Dashboard (Phase 2) 🆕
+- **Real-time мониторинг** через WebSocket
+- Графики P&L, открытые позиции, история сделок
+- Управление ботом (запуск/остановка/пауза)
+- Живые логи и статус системы
+- Современный dark theme дизайн
+- См. [docs/WEB_DASHBOARD.md](docs/WEB_DASHBOARD.md)
+
 ### 🔌 Интеграции
 - **Bybit API** (Testnet + Mainnet)
 - SQLite для хранения данных
@@ -87,8 +95,10 @@ pip install -r requirements.txt
 # Скопировать шаблон конфигурации
 Copy-Item .env.example .env
 
-# Отредактировать .env и добавить API ключи Bybit Testnet
-# Получить ключи на: https://testnet.bybit.com
+# Отредактировать .env и добавить API ключи
+# См. подробную инструкцию: API_KEYS.md
+# - Bybit Testnet: https://testnet.bybit.com
+# - CryptoPanic: https://cryptopanic.com/developers/api/
 ```
 
 ### 3. Тестирование системы
@@ -96,6 +106,39 @@ Copy-Item .env.example .env
 ```powershell
 python test_system.py
 ```
+
+### 4. Web Dashboard (опционально)
+
+```powershell
+# Запустить dashboard для мониторинга
+python run_dashboard.py
+
+# Откройте http://localhost:5000
+```
+
+## 🚢 Deployment на VPS
+
+### Быстрый деплой (Docker):
+
+```bash
+# На VPS:
+git clone https://github.com/rosavskiy/AiCryptoBot.git
+cd AiCryptoBot
+cp .env.example .env
+nano .env  # Добавьте API ключи
+
+# Запустите
+docker-compose up -d
+
+# Готово! http://your_vps_ip:5000
+```
+
+**Подробная инструкция**: см. [DEPLOY_QUICK.md](DEPLOY_QUICK.md) или [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+**Рекомендуемые VPS**:
+- Contabo Singapore - €6.99/мес (4 vCPU, 8GB RAM)
+- Hetzner Germany - €9.5/мес (4 vCPU, 8GB RAM)
+- DigitalOcean Singapore - $12/мес (2 vCPU, 2GB RAM)
 
 ## 📁 Структура проекта
 

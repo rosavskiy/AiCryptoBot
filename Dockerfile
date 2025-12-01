@@ -1,5 +1,5 @@
-# FROM python:3.9-slim
-FROM python:3.9-slim-bullseye
+# AI Crypto Bot - Dockerfile
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
@@ -8,7 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    sqlite3 \
+    git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -21,18 +22,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p data logs models
+RUN mkdir -p logs data models
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV LOG_LEVEL=INFO
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port (if web interface is added later)
-# EXPOSE 8000
+# Expose ports
+EXPOSE 5000
 
 # Health check
-HEALTHCHECK --interval=5m --timeout=3s \
-  CMD sqlite3 /app/data/trading.db "SELECT 1" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/api/status || exit 1
 
-# Run the bot
-CMD ["python", "run_bot.py"]
+# Run the application
+CMD ["python", "main.py", "--enable-web"]
