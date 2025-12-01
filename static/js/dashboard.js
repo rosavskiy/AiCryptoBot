@@ -76,6 +76,19 @@ function updateConfigDisplay() {
     document.getElementById('info-interval').textContent = config.interval || '15m';
     document.getElementById('info-ml-threshold').textContent = `${(config.ml_threshold * 100).toFixed(0)}%`;
     document.getElementById('info-risk').textContent = `${(config.risk_per_trade * 100).toFixed(1)}%`;
+    
+    // Update market type
+    if (config.market_type) {
+        const marketType = config.market_type.toUpperCase();
+        document.getElementById('info-market-type').textContent = marketType;
+        
+        // Show leverage if futures
+        if (config.is_futures && config.leverage) {
+            const leverageEl = document.getElementById('info-leverage-container');
+            leverageEl.style.display = 'flex';
+            document.getElementById('info-leverage').textContent = `${config.leverage.current_leverage}x`;
+        }
+    }
 }
 
 // Update dashboard with new data

@@ -30,10 +30,13 @@ pytest>=7.4.0
 pytest-mock>=3.11.0
 
 # Phase 2: Advanced Features
-# Deep Learning & NLP
-transformers>=4.30.0  # For FinBERT sentiment analysis
-torch>=2.0.0  # For LSTM neural networks
-sentencepiece>=0.1.99  # Required by transformers
+# Deep Learning & NLP (optional - install only if needed)
+# transformers>=4.30.0  # For FinBERT sentiment analysis (requires torch)
+# torch>=2.0.0  # For LSTM neural networks (large download ~2GB)
+# sentencepiece>=0.1.99  # Required by transformers
+
+# Note: torch is optional. If not installed, the bot will use TextBlob for sentiment analysis.
+# To enable FinBERT: pip install torch transformers sentencepiece
 
 # Telegram Bot
 python-telegram-bot>=20.0  # For notifications and remote control

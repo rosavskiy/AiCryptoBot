@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 import sys
+import os
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -58,6 +59,9 @@ bot_state = {
 # Bot controller reference
 bot_controller = None
 
+# News scheduler
+news_scheduler = None
+
 
 def set_bot_controller(controller):
     """Set reference to bot controller"""
@@ -81,6 +85,16 @@ def api_status():
 def api_config():
     """Get bot configuration"""
     config = get_config()
+    
+    # Get market type info
+    try:
+        from src.trading.market_type import get_market_manager
+        market_manager = get_market_manager()
+        market_info = market_manager.get_market_info()
+    except Exception as e:
+        logger.error(f'Error getting market info: {e}')
+        market_info = {'type': 'spot', 'is_spot': True, 'is_futures': False}
+    
     return jsonify({
         'symbols': config.get('symbols', default=['BTC/USDT']),
         'interval': config.get('interval', default='15m'),
@@ -88,7 +102,10 @@ def api_config():
         'max_positions': config.get('risk', 'max_open_positions', default=3),
         'ml_threshold': config.get('trading', 'entry', 'ml_probability_min', default=0.6),
         'sentiment_enabled': config.get('sentiment', 'enabled', default=True),
-        'telegram_enabled': config.get('telegram', 'enabled', default=False)
+        'telegram_enabled': config.get('telegram', 'enabled', default=False),
+        'market_type': market_info['type'],
+        'is_futures': market_info['is_futures'],
+        'leverage': market_info.get('leverage', {})
     })
 
 
@@ -120,6 +137,11 @@ def api_performance():
 @app.route('/api/control/start', methods=['POST'])
 def api_start():
     """Start the bot"""
+    # Start news scheduler if not running
+    global news_scheduler
+    if news_scheduler is None or not news_scheduler.is_running():
+        start_news_scheduler()
+    
     if bot_controller:
         try:
             bot_controller.start()
@@ -314,6 +336,60 @@ def get_sentiment_label(score):
         return 'Негативный'
     else:
         return 'Очень негативный'
+
+
+def start_news_scheduler():
+    """Start the news scheduler"""
+    global news_scheduler
+    
+    try:
+        from src.sentiment.news_scheduler import NewsScheduler
+        
+        # Get configuration
+        interval = int(os.getenv('NEWS_UPDATE_INTERVAL_MINUTES', '15'))
+        symbols = ['BTC', 'ETH']  # Can be configured
+        
+        # Create scheduler with callback
+        news_scheduler = NewsScheduler(
+            interval_minutes=interval,
+            symbols=symbols,
+            callback=on_news_update
+        )
+        
+        news_scheduler.start()
+        logger.info(f'[NEWS] ✅ Scheduler started: {interval} minute interval')
+        broadcast_log({
+            'level': 'INFO',
+            'message': f'📰 News scheduler started (updates every {interval} minutes)'
+        })
+        
+    except Exception as e:
+        logger.error(f'[NEWS] ❌ Failed to start scheduler: {e}', exc_info=True)
+        broadcast_log({
+            'level': 'ERROR',
+            'message': f'❌ Failed to start news scheduler: {e}'
+        })
+
+
+def on_news_update(data):
+    """Callback when news are updated"""
+    try:
+        # Add news items to bot state
+        for news_item in data['news']:
+            add_news_item(
+                title=news_item['title'],
+                source=news_item['source'],
+                sentiment=news_item['sentiment'],
+                category=news_item['category']
+            )
+        
+        # Update sentiment history
+        update_sentiment(data['avg_sentiment'])
+        
+        logger.info(f'[NEWS] ✅ Updated {len(data["news"])} news items')
+        
+    except Exception as e:
+        logger.error(f'[NEWS] ❌ Error processing news update: {e}', exc_info=True)
 
 
 def run_web_server(host='127.0.0.1', port=5000, debug=False):
