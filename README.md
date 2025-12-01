@@ -118,20 +118,30 @@ python run_dashboard.py
 
 ## 🚢 Deployment на VPS
 
-### Быстрый деплой (Docker):
+### Быстрый деплой (Git - рекомендуется):
 
 ```bash
-# На VPS:
-git clone https://github.com/rosavskiy/AiCryptoBot.git
-cd AiCryptoBot
+# 1. На VPS запустите setup
+ssh root@85.209.134.246
+./setup_vps.sh
+
+# 2. Клонируйте репозиторий
+cd /opt/aicryptobot
+git clone https://github.com/rosavskiy/AiCryptoBot.git .
+
+# 3. Настройте и запустите
 cp .env.example .env
 nano .env  # Добавьте API ключи
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl start aibot-dashboard
 
-# Запустите
-docker-compose up -d
-
-# Готово! http://your_vps_ip:5000
+# 4. Для обновлений используйте:
+bash deploy_from_git.sh  # Автоматический pull + restart
 ```
+
+**Git Workflow**: см. [GIT_WORKFLOW.md](GIT_WORKFLOW.md) - полная инструкция по разработке и деплою
 
 **Подробная инструкция**: см. [DEPLOY_QUICK.md](DEPLOY_QUICK.md) или [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 

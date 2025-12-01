@@ -129,6 +129,9 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
+.env.backup.*
 .venv
 env/
 venv/
@@ -179,3 +182,49 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# ==============================================
+# PROJECT SPECIFIC
+# ==============================================
+
+# Trading data and logs
+logs/
+*.log
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ML Models (can be large)
+models/*.pkl
+models/*.joblib
+models/*.pth
+models/*.h5
+models/*.onnx
+
+# Secrets and API keys
+config/api_keys.yaml
+*.pem
+*.key
+*.crt
+*.cert
+
+# Backups
+*.backup
+backup/
+backups/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# OS specific
+.DS_Store
+Thumbs.db
