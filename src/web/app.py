@@ -74,6 +74,10 @@ bot_state = {
 # Bot controller reference
 bot_controller = None
 
+# Real trading bot instance
+trading_bot_instance = None
+trading_bot_thread = None
+
 # News scheduler
 news_scheduler = None
 
@@ -82,6 +86,38 @@ def set_bot_controller(controller):
     """Set reference to bot controller"""
     global bot_controller
     bot_controller = controller
+
+
+def initialize_trading_bot():
+    """Initialize real trading bot for testnet"""
+    global trading_bot_instance
+    
+    if trading_bot_instance is not None:
+        return trading_bot_instance
+    
+    try:
+        from src.trading.executor import TradingExecutor
+        
+        # Create trading executor in testnet mode
+        config = get_config()
+        
+        # Force testnet mode
+        testnet_mode = config.get('exchange', 'testnet', default=True)
+        
+        logger.info(f'[BOT] Initializing trading bot (testnet={testnet_mode})...')
+        
+        trading_bot_instance = TradingExecutor(
+            dry_run=False,  # Real execution
+            testnet=testnet_mode,
+            analyze_only=False
+        )
+        
+        logger.info('[BOT] Trading bot initialized successfully')
+        return trading_bot_instance
+        
+    except Exception as e:
+        logger.error(f'[BOT] Failed to initialize trading bot: {e}', exc_info=True)
+        return None
 
 
 @app.route('/')
@@ -151,69 +187,169 @@ def api_performance():
 
 @app.route('/api/control/start', methods=['POST'])
 def api_start():
-    """Start the bot"""
-    # WARNING: This is demo mode only!
-    # Real trading bot runs via systemd: systemctl status aibot-trading
+    """Start the real trading bot"""
+    global trading_bot_instance, trading_bot_thread, bot_state
     
-    # Start news scheduler if not running
-    global news_scheduler
-    if news_scheduler is None or not news_scheduler.is_running():
-        start_news_scheduler()
-    
-    if bot_controller:
-        try:
-            bot_controller.start()
+    try:
+        # Initialize trading bot if not already done
+        if trading_bot_instance is None:
+            trading_bot_instance = initialize_trading_bot()
+            
+        if trading_bot_instance is None:
+            return jsonify({
+                'success': False, 
+                'error': 'Failed to initialize trading bot'
+            }), 500
+        
+        # Check if already running
+        if bot_state['status'] == 'running':
+            return jsonify({
+                'success': False,
+                'message': 'Bot is already running'
+            })
+        
+        # Start news scheduler if not running
+        global news_scheduler
+        if news_scheduler is None or not news_scheduler.is_running():
+            start_news_scheduler()
+        
+        # Start trading bot in separate thread
+        def run_trading_loop():
+            """Run trading bot loop"""
+            logger.info('[BOT] Trading loop started')
             bot_state['status'] = 'running'
             bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
             broadcast_status_update()
-            return jsonify({'success': True, 'message': 'Bot started'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
-    
-    # Demo mode - NOT REAL TRADING
-    bot_state['status'] = 'running'
-    bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
-    broadcast_status_update()
-    broadcast_log({'level': 'WARNING', 'message': '⚠️ DEMO MODE: This is simulation only. Real bot runs via systemd service.'})
-    return jsonify({'success': True, 'message': 'Demo bot started (NOT real trading)', 'warning': 'Use systemd service for real trading'})
+            
+            try:
+                # Get interval from config
+                config = get_config()
+                interval = config.get('trading', 'interval', default=900)  # 15 min
+                
+                while bot_state['status'] == 'running':
+                    try:
+                        # Run one trading iteration
+                        logger.info('[BOT] Running trading iteration...')
+                        result = trading_bot_instance.analyze_and_trade()
+                        
+                        # Update bot state with results
+                        if result:
+                            update_bot_state_from_executor(result)
+                        
+                        # Broadcast update to web clients
+                        broadcast_status_update()
+                        
+                    except Exception as e:
+                        logger.error(f'[BOT] Error in trading iteration: {e}', exc_info=True)
+                        broadcast_log({'level': 'ERROR', 'message': f'Trading error: {str(e)}'})
+                    
+                    # Sleep until next iteration
+                    logger.info(f'[BOT] Waiting {interval}s until next iteration...')
+                    time.sleep(interval)
+                    
+            except Exception as e:
+                logger.error(f'[BOT] Fatal error in trading loop: {e}', exc_info=True)
+                bot_state['status'] = 'stopped'
+                broadcast_status_update()
+            
+            logger.info('[BOT] Trading loop stopped')
+        
+        # Start thread
+        trading_bot_thread = threading.Thread(target=run_trading_loop, daemon=True)
+        trading_bot_thread.start()
+        
+        broadcast_log({'level': 'INFO', 'message': '🚀 Real trading bot started on TESTNET'})
+        
+        return jsonify({
+            'success': True,
+            'message': 'Trading bot started successfully',
+            'testnet': True
+        })
+        
+    except Exception as e:
+        logger.error(f'[BOT] Error starting bot: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def update_bot_state_from_executor(result):
+    """Update bot state from trading executor results"""
+    try:
+        # Update from executor state
+        if hasattr(trading_bot_instance, 'portfolio_manager'):
+            pm = trading_bot_instance.portfolio_manager
+            bot_state['balance'] = pm.get_total_value()
+            bot_state['total_pnl'] = pm.total_pnl
+            bot_state['total_pnl_pct'] = pm.total_pnl_pct
+            bot_state['open_positions'] = [
+                {
+                    'symbol': pos.symbol,
+                    'side': pos.side,
+                    'size': pos.size,
+                    'entry_price': pos.entry_price,
+                    'current_price': pos.current_price if hasattr(pos, 'current_price') else 0,
+                    'pnl': pos.unrealized_pnl if hasattr(pos, 'unrealized_pnl') else 0,
+                    'pnl_pct': pos.unrealized_pnl_pct if hasattr(pos, 'unrealized_pnl_pct') else 0
+                }
+                for pos in pm.positions
+            ]
+            
+            # Update stats
+            closed_trades = pm.get_closed_trades()
+            bot_state['closed_trades'] = closed_trades[-50:]  # Last 50 trades
+            bot_state['total_trades'] = len(closed_trades)
+            bot_state['winning_trades'] = sum(1 for t in closed_trades if t.get('pnl', 0) > 0)
+            bot_state['losing_trades'] = sum(1 for t in closed_trades if t.get('pnl', 0) < 0)
+            bot_state['win_rate'] = (bot_state['winning_trades'] / max(bot_state['total_trades'], 1)) * 100
+            bot_state['current_drawdown'] = pm.current_drawdown
+            bot_state['max_drawdown'] = pm.max_drawdown
+            
+    except Exception as e:
+        logger.error(f'[BOT] Error updating state: {e}', exc_info=True)
 
 
 @app.route('/api/control/stop', methods=['POST'])
 def api_stop():
-    """Stop the bot"""
-    if bot_controller:
-        try:
-            bot_controller.stop()
-            bot_state['status'] = 'stopped'
-            broadcast_status_update()
-            return jsonify({'success': True, 'message': 'Bot stopped'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+    """Stop the trading bot"""
+    global bot_state
     
-    # Demo mode - simulate bot stop
+    if bot_state['status'] == 'stopped':
+        return jsonify({
+            'success': False,
+            'message': 'Bot is not running'
+        })
+    
+    # Stop the bot
     bot_state['status'] = 'stopped'
     broadcast_status_update()
-    broadcast_log({'level': 'INFO', 'message': '⏹️ Bot stopped'})
-    return jsonify({'success': True, 'message': 'Bot stopped (demo mode)'})
+    broadcast_log({'level': 'INFO', 'message': '⏹️ Trading bot stopped'})
+    
+    logger.info('[BOT] Bot stopped by user')
+    
+    return jsonify({'success': True, 'message': 'Bot stopped'})
 
 
 @app.route('/api/control/pause', methods=['POST'])
 def api_pause():
-    """Pause the bot"""
-    if bot_controller:
-        try:
-            bot_controller.pause()
-            bot_state['status'] = 'paused'
-            broadcast_status_update()
-            return jsonify({'success': True, 'message': 'Bot paused'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)}), 500
+    """Pause the trading bot"""
+    global bot_state
     
-    # Demo mode - simulate bot pause
+    if bot_state['status'] != 'running':
+        return jsonify({
+            'success': False,
+            'message': 'Bot is not running'
+        })
+    
+    # Pause the bot
     bot_state['status'] = 'paused'
     broadcast_status_update()
-    broadcast_log({'level': 'WARNING', 'message': '⏸️ Bot paused'})
-    return jsonify({'success': True, 'message': 'Bot paused (demo mode)'})
+    broadcast_log({'level': 'WARNING', 'message': '⏸️ Trading bot paused'})
+    
+    logger.info('[BOT] Bot paused by user')
+    
+    return jsonify({'success': True, 'message': 'Bot paused'})
 
 
 @app.route('/api/logs')

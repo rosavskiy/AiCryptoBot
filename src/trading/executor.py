@@ -33,24 +33,31 @@ class TradingExecutor:
         api_key: str = None,
         api_secret: str = None,
         testnet: bool = True,
+        dry_run: bool = False,
+        analyze_only: bool = False,
         initial_capital: float = None
     ):
         """
         Initialize trading executor
         
         Args:
-            api_key: Bybit API key
-            api_secret: Bybit API secret
+            api_key: Exchange API key
+            api_secret: Exchange API secret
             testnet: Use testnet if True
+            dry_run: Simulate trades without execution
+            analyze_only: Only analyze market, do not trade
             initial_capital: Starting capital in USDT
         """
         self.config = get_config()
+        self.dry_run = dry_run
+        self.analyze_only = analyze_only
         
         # Initialize components
         self.data_fetcher = MarketDataFetcher(api_key, api_secret, testnet)
         self.predictor = MLPredictor()
         self.sentiment_analyzer = NewsAnalyzer()
         self.risk_manager = RiskManager(initial_capital)
+        self.portfolio_manager = self.risk_manager  # Alias for web access
         self.trade_logger = TradeLogger()
         
         # Exchange connection
@@ -76,6 +83,97 @@ class TradingExecutor:
         
         logger.info(f"[EXECUTOR] Trading Executor initialized ({'TESTNET' if testnet else 'MAINNET'})")
         logger.info(f"[EXECUTOR] ML threshold: {self.ml_threshold:.2%}, Sentiment: {self.sentiment_threshold}")
+    
+    def analyze_and_trade(self, symbol: str = 'BTC/USDT', dry_run: bool = False) -> Dict:
+        """
+        Perform one complete trading iteration: analyze + signal + trade
+        
+        Args:
+            symbol: Trading symbol
+            dry_run: Simulate trades without execution
+            
+        Returns:
+            Dictionary with iteration results
+        """
+        result = {
+            'symbol': symbol,
+            'timestamp': datetime.now(),
+            'analysis': None,
+            'signal': None,
+            'trade': None,
+            'positions_checked': False
+        }
+        
+        try:
+            # Check existing positions first
+            if self.active_positions:
+                logger.info(f"\n[CHECK] Checking {len(self.active_positions)} active positions...")
+                self.check_positions()
+                result['positions_checked'] = True
+            
+            # Market analysis
+            logger.info(f"\n[ANALYZE] Starting analysis for {symbol}...")
+            analysis = self.analyze_market(symbol)
+            result['analysis'] = {
+                'price': analysis['price'],
+                'ml_signal': analysis['ml_signal'],
+                'ml_confidence': analysis['ml_confidence'],
+                'sentiment': analysis['sentiment_label']
+            }
+            
+            # Generate signal
+            should_trade, reason, direction = self.generate_signal(analysis)
+            result['signal'] = {
+                'should_trade': should_trade,
+                'reason': reason,
+                'direction': direction
+            }
+            
+            logger.info(f"\n[SIGNAL] {symbol}: {'TRADE' if should_trade else 'NO TRADE'}")
+            logger.info(f"[SIGNAL] Reason: {reason}")
+            
+            # Execute trade if signal is positive
+            if should_trade:
+                trade_result = self.execute_trade(analysis, direction, dry_run=dry_run)
+                result['trade'] = trade_result
+                
+                if trade_result:
+                    logger.info(f"[SUCCESS] Trade executed: {direction.upper()} {symbol}")
+                else:
+                    logger.warning(f"[FAILED] Trade execution failed")
+            
+            # Log portfolio status
+            self._log_portfolio_status()
+            
+        except Exception as e:
+            logger.error(f"[ERROR] Trading iteration failed: {e}", exc_info=True)
+            result['error'] = str(e)
+        
+        return result
+    
+    def _log_portfolio_status(self):
+        """Log current portfolio status"""
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[PORTFOLIO] Status")
+        logger.info(f"{'='*80}")
+        
+        capital = self.risk_manager.current_capital
+        positions = len(self.active_positions)
+        max_positions = self.risk_manager.max_positions
+        exposure = sum(pos.get('size', 0) * pos.get('entry_price', 0) 
+                      for pos in self.active_positions.values())
+        exposure_pct = (exposure / capital * 100) if capital > 0 else 0
+        
+        drawdown = self.risk_manager.current_drawdown
+        total_pnl = self.risk_manager.total_pnl
+        total_pnl_pct = (total_pnl / self.risk_manager.initial_capital * 100) if self.risk_manager.initial_capital > 0 else 0
+        
+        logger.info(f"  Capital:    ${capital:,.2f}")
+        logger.info(f"  Positions:  {positions}/{max_positions}")
+        logger.info(f"  Exposure:   ${exposure:,.2f} ({exposure_pct:.1f}%)")
+        logger.info(f"  Drawdown:   {drawdown:.2f}%")
+        logger.info(f"  PnL:        ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%)")
+        logger.info(f"{'='*80}\n")
     
     def analyze_market(self, symbol: str = 'BTC/USDT') -> Dict:
         """
