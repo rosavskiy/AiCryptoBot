@@ -3,7 +3,7 @@
 
 # Exchange Settings
 exchange:
-  name: bybit
+  name: binance
   testnet: true
   rate_limit: true
   default_type: linear  # linear = USDT perpetual futures
