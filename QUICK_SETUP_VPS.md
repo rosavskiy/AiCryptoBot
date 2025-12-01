@@ -30,9 +30,61 @@ bash ~/setup_vps_root.sh
 
 ## Шаг 3: Клонировать репозиторий
 
+### Вариант A: Публичный репозиторий
+
+Сделайте репо публичным на GitHub:
+```
+Settings → General → Danger Zone → Change visibility → Make public
+```
+
+Затем:
 ```bash
 cd /opt/aicryptobot
 git clone https://github.com/rosavskiy/AiCryptoBot.git .
+```
+
+### Вариант B: Приватный репозиторий (через Personal Access Token)
+
+1. **Создать токен на GitHub:**
+   - Зайти: https://github.com/settings/tokens
+   - Generate new token (classic)
+   - Выбрать scopes: `repo` (полный доступ к приватным репо)
+   - Скопировать токен (показывается один раз!)
+
+2. **Клонировать с токеном:**
+```bash
+cd /opt/aicryptobot
+
+# Формат: https://TOKEN@github.com/username/repo.git
+git clone https://ваш_токен@github.com/rosavskiy/AiCryptoBot.git .
+
+# Пример:
+# git clone https://ghp_xxxxxxxxxxxxxxxxxxxx@github.com/rosavskiy/AiCryptoBot.git .
+```
+
+### Вариант C: Загрузить вручную
+
+Если не хотите возиться с токенами:
+
+```powershell
+# На Windows создать архив:
+Compress-Archive -Path d:\Projects\AiCryptoBot\* -DestinationPath d:\AiCryptoBot.zip -Force
+
+# Загрузить на VPS:
+scp d:\AiCryptoBot.zip root@85.209.134.246:/opt/aicryptobot/
+```
+
+```bash
+# На VPS распаковать:
+cd /opt/aicryptobot
+unzip AiCryptoBot.zip
+rm AiCryptoBot.zip
+
+# Инициализировать git вручную:
+git init
+git remote add origin https://github.com/rosavskiy/AiCryptoBot.git
+git add .
+git commit -m "initial"
 ```
 
 ---
