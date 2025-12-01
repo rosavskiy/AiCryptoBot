@@ -312,23 +312,34 @@ def update_bot_state_from_executor(result):
             rm = trading_bot_instance.risk_manager
             
             # Update balance from risk manager
-            bot_state['balance'] = rm.current_capital
-            bot_state['total_pnl'] = rm.total_pnl
+            bot_state['balance'] = float(rm.current_capital)
+            bot_state['total_pnl'] = float(rm.total_pnl) if hasattr(rm, 'total_pnl') else 0.0
             bot_state['total_pnl_pct'] = (rm.total_pnl / rm.initial_capital * 100) if rm.initial_capital > 0 else 0
             
-            # Update positions from executor
+            # Update positions from executor - ПРАВИЛЬНЫЕ ПОЛЯ!
             bot_state['open_positions'] = []
             if hasattr(trading_bot_instance, 'active_positions'):
-                for symbol, pos in trading_bot_instance.active_positions.items():
+                for symbol, pos_data in trading_bot_instance.active_positions.items():
+                    # pos_data содержит: symbol, side, type, price, quantity, position_size, stop_loss, take_profit, timestamp, order_id, status
+                    entry_price = float(pos_data.get('price', 0))
+                    quantity = float(pos_data.get('quantity', 0))
+                    position_size = float(pos_data.get('position_size', 0))
+                    
                     bot_state['open_positions'].append({
                         'symbol': symbol,
-                        'side': pos.get('side', 'long'),
-                        'size': pos.get('size', 0),
-                        'entry_price': pos.get('entry_price', 0),
-                        'current_price': pos.get('current_price', 0),
-                        'pnl': pos.get('pnl', 0),
-                        'pnl_pct': pos.get('pnl_pct', 0)
+                        'side': pos_data.get('side', 'buy').upper(),
+                        'entry_price': entry_price,
+                        'current_price': entry_price,  # Will be updated on next check
+                        'quantity': quantity,
+                        'position_size': position_size,
+                        'stop_loss': float(pos_data.get('stop_loss', 0)),
+                        'take_profit': float(pos_data.get('take_profit', 0)),
+                        'pnl': 0.0,  # Will be calculated on next check
+                        'pnl_pct': 0.0,
+                        'order_id': str(pos_data.get('order_id', ''))
                     })
+            
+            logger.info(f'[BOT] State updated: {len(bot_state["open_positions"])} positions')
             
             # Update stats from trade logger
             if hasattr(trading_bot_instance, 'trade_logger'):
@@ -346,8 +357,8 @@ def update_bot_state_from_executor(result):
                 except Exception as e:
                     logger.warning(f'[BOT] Could not load trade history: {e}')
             
-            bot_state['current_drawdown'] = rm.current_drawdown
-            bot_state['max_drawdown'] = rm.max_drawdown
+            bot_state['current_drawdown'] = float(getattr(rm, 'current_drawdown', 0.0))
+            bot_state['max_drawdown'] = float(getattr(rm, 'max_drawdown', 0.0))
             
     except Exception as e:
         logger.error(f'[BOT] Error updating state: {e}', exc_info=True)
@@ -536,10 +547,15 @@ def api_news():
 # WebSocket events
 def make_serializable(obj):
     """Recursively convert object to JSON-serializable format"""
-    if isinstance(obj, (str, int, float, bool, type(None))):
+    if obj is None or isinstance(obj, (bool, str)):
         return obj
+    elif isinstance(obj, (int, float)):
+        # Handle numpy types and ensure valid floats
+        if hasattr(obj, 'item'):  # numpy scalar
+            return obj.item()
+        return float(obj) if isinstance(obj, float) else int(obj)
     elif isinstance(obj, dict):
-        return {k: make_serializable(v) for k, v in obj.items()}
+        return {str(k): make_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [make_serializable(item) for item in obj]
     elif hasattr(obj, 'isoformat'):  # datetime objects
@@ -547,24 +563,41 @@ def make_serializable(obj):
     elif hasattr(obj, 'tolist'):  # numpy arrays
         return obj.tolist()
     elif hasattr(obj, 'to_dict'):  # pandas objects
-        return obj.to_dict()
+        return make_serializable(obj.to_dict())
     else:
-        # Convert to string as last resort
+        # Last resort - convert to string
         return str(obj)
 
 
 def get_serializable_bot_state():
     """Get bot state safe for JSON serialization"""
     try:
-        safe_state = make_serializable(bot_state)
+        # Make a clean copy with only primitive types
+        safe_state = {
+            'status': str(bot_state.get('status', 'stopped')),
+            'start_time': bot_state.get('start_time'),
+            'balance': float(bot_state.get('balance', 10000.0)),
+            'initial_balance': float(bot_state.get('initial_balance', 10000.0)),
+            'total_pnl': float(bot_state.get('total_pnl', 0.0)),
+            'total_pnl_pct': float(bot_state.get('total_pnl_pct', 0.0)),
+            'open_positions': make_serializable(bot_state.get('open_positions', [])),
+            'closed_trades': make_serializable(bot_state.get('closed_trades', []))[:50],  # Last 50
+            'total_trades': int(bot_state.get('total_trades', 0)),
+            'winning_trades': int(bot_state.get('winning_trades', 0)),
+            'losing_trades': int(bot_state.get('losing_trades', 0)),
+            'win_rate': float(bot_state.get('win_rate', 0.0)),
+            'current_drawdown': float(bot_state.get('current_drawdown', 0.0)),
+            'max_drawdown': float(bot_state.get('max_drawdown', 0.0)),
+            'sharpe_ratio': float(bot_state.get('sharpe_ratio', 0.0)),
+        }
         return safe_state
     except Exception as e:
-        logger.error(f'[WEB] Error serializing bot_state: {e}')
+        logger.error(f'[WEB] Error serializing bot_state: {e}', exc_info=True)
         # Return minimal safe state
         return {
-            'status': bot_state.get('status', 'stopped'),
-            'balance': bot_state.get('balance', 10000.0),
-            'total_pnl': bot_state.get('total_pnl', 0.0),
+            'status': 'stopped',
+            'balance': 10000.0,
+            'total_pnl': 0.0,
             'open_positions': [],
             'closed_trades': []
         }
