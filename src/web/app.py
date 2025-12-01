@@ -324,11 +324,11 @@ def update_bot_state_from_executor(result):
             # Update stats from trade logger
             if hasattr(trading_bot_instance, 'trade_logger'):
                 try:
-                    trades = trading_bot_instance.trade_logger.get_trades(limit=100)
-                    # Skip if trades is empty or invalid
-                    if trades and len(trades) > 0:
-                        # Filter only dict entries (skip string errors)
-                        valid_trades = [t for t in trades if isinstance(t, dict)]
+                    trades_df = trading_bot_instance.trade_logger.get_trades(limit=100)
+                    # Check if DataFrame is not empty
+                    if not trades_df.empty:
+                        # Convert DataFrame to list of dicts
+                        valid_trades = trades_df.to_dict('records')
                         bot_state['closed_trades'] = valid_trades[-50:]  # Last 50 trades
                         bot_state['total_trades'] = len(valid_trades)
                         bot_state['winning_trades'] = sum(1 for t in valid_trades if t.get('pnl', 0) > 0)
