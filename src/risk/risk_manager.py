@@ -54,6 +54,11 @@ class RiskManager:
         self.daily_trades = 0
         self.last_trade_date = None
         
+        # P&L tracking (for web interface compatibility)
+        self.total_pnl = 0.0
+        self.current_drawdown = 0.0
+        self.max_positions = self.max_open_positions  # Alias for compatibility
+        
         logger.info(f"[RISK] Risk Manager initialized with ${self.initial_capital:,.2f} capital")
         logger.info(f"[RISK] Risk per trade: {self.risk_per_trade:.2%}, Max positions: {self.max_open_positions}")
     

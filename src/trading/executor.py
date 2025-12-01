@@ -159,19 +159,25 @@ class TradingExecutor:
         
         capital = self.risk_manager.current_capital
         positions = len(self.active_positions)
-        max_positions = self.risk_manager.max_positions
+        max_positions = getattr(self.risk_manager, 'max_positions', 
+                               getattr(self.risk_manager, 'max_open_positions', 3))
         exposure = sum(pos.get('size', 0) * pos.get('entry_price', 0) 
                       for pos in self.active_positions.values())
         exposure_pct = (exposure / capital * 100) if capital > 0 else 0
         
-        drawdown = self.risk_manager.current_drawdown
-        total_pnl = self.risk_manager.total_pnl
+        # Get drawdown
+        current_dd = self.risk_manager.get_current_drawdown() if hasattr(self.risk_manager, 'get_current_drawdown') else 0.0
+        self.risk_manager.current_drawdown = current_dd * 100  # Store as percentage
+        
+        # Calculate total PnL
+        total_pnl = capital - self.risk_manager.initial_capital
+        self.risk_manager.total_pnl = total_pnl
         total_pnl_pct = (total_pnl / self.risk_manager.initial_capital * 100) if self.risk_manager.initial_capital > 0 else 0
         
         logger.info(f"  Capital:    ${capital:,.2f}")
         logger.info(f"  Positions:  {positions}/{max_positions}")
         logger.info(f"  Exposure:   ${exposure:,.2f} ({exposure_pct:.1f}%)")
-        logger.info(f"  Drawdown:   {drawdown:.2f}%")
+        logger.info(f"  Drawdown:   {current_dd*100:.2f}%")
         logger.info(f"  PnL:        ${total_pnl:+,.2f} ({total_pnl_pct:+.2f}%)")
         logger.info(f"{'='*80}\n")
     

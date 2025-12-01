@@ -104,9 +104,21 @@ def initialize_trading_bot():
         # Force testnet mode
         testnet_mode = config.get('exchange', 'testnet', default=True)
         
+        # Get API keys from environment
+        import os
+        if testnet_mode:
+            # Try Binance testnet first
+            api_key = os.getenv('BINANCE_TESTNET_API_KEY') or os.getenv('BYBIT_API_KEY')
+            api_secret = os.getenv('BINANCE_TESTNET_API_SECRET') or os.getenv('BYBIT_API_SECRET')
+        else:
+            api_key = os.getenv('BINANCE_API_KEY') or os.getenv('BYBIT_API_KEY')
+            api_secret = os.getenv('BINANCE_API_SECRET') or os.getenv('BYBIT_API_SECRET')
+        
         logger.info(f'[BOT] Initializing trading bot (testnet={testnet_mode})...')
         
         trading_bot_instance = TradingExecutor(
+            api_key=api_key,
+            api_secret=api_secret,
             dry_run=False,  # Real execution
             testnet=testnet_mode,
             analyze_only=False
