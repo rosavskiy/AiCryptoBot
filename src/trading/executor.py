@@ -115,9 +115,11 @@ class TradingExecutor:
             logger.info(f"\n[ANALYZE] Starting analysis for {symbol}...")
             analysis = self.analyze_market(symbol)
             result['analysis'] = {
-                'price': analysis['price'],
+                'price': float(analysis['price']),
+                'atr': float(analysis['atr']),
                 'ml_signal': analysis['ml_signal'],
-                'ml_confidence': analysis['ml_confidence'],
+                'ml_confidence': float(analysis['ml_confidence']),
+                'sentiment_score': float(analysis['sentiment_score']),
                 'sentiment': analysis['sentiment_label']
             }
             
@@ -445,15 +447,16 @@ class TradingExecutor:
         try:
             side = 'sell' if direction == 'long' else 'buy'
             
-            # Bybit stop-loss order
+            # Binance SPOT stop-loss: use STOP_LOSS_LIMIT
             order = self.exchange.create_order(
                 symbol=symbol,
-                type='stop_market',
+                type='STOP_LOSS_LIMIT',
                 side=side,
                 amount=quantity,
+                price=stop_price,  # Limit price
                 params={
-                    'stopPrice': stop_price,
-                    'triggerBy': 'LastPrice'
+                    'stopPrice': stop_price,  # Trigger price
+                    'timeInForce': 'GTC'  # Good Till Cancel
                 }
             )
             

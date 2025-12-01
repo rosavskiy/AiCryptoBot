@@ -246,14 +246,23 @@ def api_start():
                         
                         # Update bot state with results
                         if result:
-                            update_bot_state_from_executor(result)
+                            try:
+                                update_bot_state_from_executor(result)
+                            except Exception as state_error:
+                                logger.warning(f'[BOT] Could not update state: {state_error}')
                         
                         # Broadcast update to web clients
-                        broadcast_status_update()
+                        try:
+                            broadcast_status_update()
+                        except Exception as broadcast_error:
+                            logger.warning(f'[BOT] Could not broadcast update: {broadcast_error}')
                         
                     except Exception as e:
                         logger.error(f'[BOT] Error in trading iteration: {e}', exc_info=True)
-                        broadcast_log({'level': 'ERROR', 'message': f'Trading error: {str(e)}'})
+                        try:
+                            broadcast_log({'level': 'ERROR', 'message': f'Trading error: {str(e)}'})
+                        except:
+                            pass  # Don't fail if broadcast fails
                     
                     # Sleep until next iteration
                     logger.info(f'[BOT] Waiting {interval}s until next iteration...')
@@ -314,12 +323,19 @@ def update_bot_state_from_executor(result):
             
             # Update stats from trade logger
             if hasattr(trading_bot_instance, 'trade_logger'):
-                trades = trading_bot_instance.trade_logger.get_trades(limit=100)
-                bot_state['closed_trades'] = trades[-50:]  # Last 50 trades
-                bot_state['total_trades'] = len(trades)
-                bot_state['winning_trades'] = sum(1 for t in trades if t.get('pnl', 0) > 0)
-                bot_state['losing_trades'] = sum(1 for t in trades if t.get('pnl', 0) < 0)
-                bot_state['win_rate'] = (bot_state['winning_trades'] / max(bot_state['total_trades'], 1)) * 100
+                try:
+                    trades = trading_bot_instance.trade_logger.get_trades(limit=100)
+                    # Skip if trades is empty or invalid
+                    if trades and len(trades) > 0:
+                        # Filter only dict entries (skip string errors)
+                        valid_trades = [t for t in trades if isinstance(t, dict)]
+                        bot_state['closed_trades'] = valid_trades[-50:]  # Last 50 trades
+                        bot_state['total_trades'] = len(valid_trades)
+                        bot_state['winning_trades'] = sum(1 for t in valid_trades if t.get('pnl', 0) > 0)
+                        bot_state['losing_trades'] = sum(1 for t in valid_trades if t.get('pnl', 0) < 0)
+                        bot_state['win_rate'] = (bot_state['winning_trades'] / max(bot_state['total_trades'], 1)) * 100
+                except Exception as e:
+                    logger.warning(f'[BOT] Could not load trade history: {e}')
             
             bot_state['current_drawdown'] = rm.current_drawdown
             bot_state['max_drawdown'] = rm.max_drawdown
