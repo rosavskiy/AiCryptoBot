@@ -44,8 +44,17 @@ app = Flask(
 )
 app.config['SECRET_KEY'] = 'ai-crypto-bot-secret-key-2025'
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# Initialize SocketIO with better error handling
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=False,  # Disable verbose logging
+    engineio_logger=False,  # Disable engine.io logging
+    ping_timeout=60,
+    ping_interval=25,
+    manage_session=False  # Don't manage sessions automatically
+)
 
 # Global bot state
 bot_state = {
@@ -592,6 +601,18 @@ def handle_connect():
 def handle_disconnect():
     """Client disconnected"""
     logger.info('[WEB] Client disconnected')
+
+
+@socketio.on_error()
+def error_handler(e):
+    """Handle SocketIO errors"""
+    logger.warning(f'[WEB] SocketIO error: {e}')
+
+
+@socketio.on_error_default
+def default_error_handler(e):
+    """Handle all other SocketIO errors"""
+    logger.warning(f'[WEB] SocketIO default error: {e}')
 
 
 @socketio.on('request_update')
