@@ -525,40 +525,40 @@ def api_news():
 
 
 # WebSocket events
+def make_serializable(obj):
+    """Recursively convert object to JSON-serializable format"""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    elif isinstance(obj, dict):
+        return {k: make_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_serializable(item) for item in obj]
+    elif hasattr(obj, 'isoformat'):  # datetime objects
+        return obj.isoformat()
+    elif hasattr(obj, 'tolist'):  # numpy arrays
+        return obj.tolist()
+    elif hasattr(obj, 'to_dict'):  # pandas objects
+        return obj.to_dict()
+    else:
+        # Convert to string as last resort
+        return str(obj)
+
+
 def get_serializable_bot_state():
     """Get bot state safe for JSON serialization"""
-    import copy
-    safe_state = {}
-    
-    for key, value in bot_state.items():
-        try:
-            # Try to serialize to JSON
-            import json
-            json.dumps(value)
-            safe_state[key] = value
-        except (TypeError, ValueError):
-            # Skip non-serializable values
-            if key == 'open_positions' and isinstance(value, list):
-                # Clean positions list
-                safe_positions = []
-                for pos in value:
-                    if isinstance(pos, dict):
-                        safe_pos = {k: v for k, v in pos.items() if isinstance(v, (str, int, float, bool, type(None)))}
-                        safe_positions.append(safe_pos)
-                safe_state[key] = safe_positions
-            elif key == 'closed_trades' and isinstance(value, list):
-                # Clean trades list
-                safe_trades = []
-                for trade in value:
-                    if isinstance(trade, dict):
-                        safe_trade = {k: v for k, v in trade.items() if isinstance(v, (str, int, float, bool, type(None)))}
-                        safe_trades.append(safe_trade)
-                safe_state[key] = safe_trades
-            else:
-                # Skip completely
-                logger.debug(f'[WEB] Skipping non-serializable key: {key}')
-    
-    return safe_state
+    try:
+        safe_state = make_serializable(bot_state)
+        return safe_state
+    except Exception as e:
+        logger.error(f'[WEB] Error serializing bot_state: {e}')
+        # Return minimal safe state
+        return {
+            'status': bot_state.get('status', 'stopped'),
+            'balance': bot_state.get('balance', 10000.0),
+            'total_pnl': bot_state.get('total_pnl', 0.0),
+            'open_positions': [],
+            'closed_trades': []
+        }
 
 
 @socketio.on('connect')
@@ -579,8 +579,13 @@ def handle_connect():
         if bot_state['status'] == 'running':
             bot_state['status'] = 'stopped'
     
-    safe_state = get_serializable_bot_state()
-    emit('status_update', safe_state)
+    try:
+        safe_state = get_serializable_bot_state()
+        emit('status_update', safe_state)
+    except Exception as e:
+        logger.error(f'[WEB] Failed to emit status_update on connect: {e}')
+        # Send minimal state
+        emit('status_update', {'status': 'stopped', 'balance': 10000.0})
 
 
 @socketio.on('disconnect')
@@ -592,14 +597,20 @@ def handle_disconnect():
 @socketio.on('request_update')
 def handle_request_update():
     """Client requested update"""
-    safe_state = get_serializable_bot_state()
-    emit('status_update', safe_state)
+    try:
+        safe_state = get_serializable_bot_state()
+        emit('status_update', safe_state)
+    except Exception as e:
+        logger.error(f'[WEB] Failed to emit status_update on request: {e}')
 
 
 def broadcast_status_update():
     """Broadcast status update to all connected clients"""
-    safe_state = get_serializable_bot_state()
-    socketio.emit('status_update', safe_state, namespace='/')
+    try:
+        safe_state = get_serializable_bot_state()
+        socketio.emit('status_update', safe_state, namespace='/')
+    except Exception as e:
+        logger.error(f'[WEB] Failed to broadcast status_update: {e}')
 
 
 def broadcast_trade_update(trade_data):
