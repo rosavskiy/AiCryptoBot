@@ -525,6 +525,42 @@ def api_news():
 
 
 # WebSocket events
+def get_serializable_bot_state():
+    """Get bot state safe for JSON serialization"""
+    import copy
+    safe_state = {}
+    
+    for key, value in bot_state.items():
+        try:
+            # Try to serialize to JSON
+            import json
+            json.dumps(value)
+            safe_state[key] = value
+        except (TypeError, ValueError):
+            # Skip non-serializable values
+            if key == 'open_positions' and isinstance(value, list):
+                # Clean positions list
+                safe_positions = []
+                for pos in value:
+                    if isinstance(pos, dict):
+                        safe_pos = {k: v for k, v in pos.items() if isinstance(v, (str, int, float, bool, type(None)))}
+                        safe_positions.append(safe_pos)
+                safe_state[key] = safe_positions
+            elif key == 'closed_trades' and isinstance(value, list):
+                # Clean trades list
+                safe_trades = []
+                for trade in value:
+                    if isinstance(trade, dict):
+                        safe_trade = {k: v for k, v in trade.items() if isinstance(v, (str, int, float, bool, type(None)))}
+                        safe_trades.append(safe_trade)
+                safe_state[key] = safe_trades
+            else:
+                # Skip completely
+                logger.debug(f'[WEB] Skipping non-serializable key: {key}')
+    
+    return safe_state
+
+
 @socketio.on('connect')
 def handle_connect():
     """Client connected"""
@@ -543,7 +579,8 @@ def handle_connect():
         if bot_state['status'] == 'running':
             bot_state['status'] = 'stopped'
     
-    emit('status_update', bot_state)
+    safe_state = get_serializable_bot_state()
+    emit('status_update', safe_state)
 
 
 @socketio.on('disconnect')
@@ -555,12 +592,14 @@ def handle_disconnect():
 @socketio.on('request_update')
 def handle_request_update():
     """Client requested update"""
-    emit('status_update', bot_state)
+    safe_state = get_serializable_bot_state()
+    emit('status_update', safe_state)
 
 
 def broadcast_status_update():
     """Broadcast status update to all connected clients"""
-    socketio.emit('status_update', bot_state, namespace='/')
+    safe_state = get_serializable_bot_state()
+    socketio.emit('status_update', safe_state, namespace='/')
 
 
 def broadcast_trade_update(trade_data):
