@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     loadConfig();
     connectWebSocket();
+    // Auto-load historical logs on page load
+    setTimeout(() => loadHistoryOnStartup(), 1000);
 });
 
 // Setup event listeners
@@ -485,6 +487,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
             loadNewsData();
         } else if (tabName === 'logs') {
             loadDetailedLogs();
+        } else if (tabName === 'overview') {
+            // Load history when returning to overview tab if logs were cleared
+            if (allLogs.length === 0 && !logsLoaded) {
+                loadHistoryOnStartup();
+            }
         }
     });
 });
@@ -743,6 +750,27 @@ function updateNewsSummary(news) {
 let allLogs = [];
 let currentFilter = 'all';
 let logsLoaded = false;
+
+// Load history on startup (called when page loads)
+async function loadHistoryOnStartup() {
+    try {
+        const response = await fetch('/api/logs/history');
+        const data = await response.json();
+        
+        if (data.logs && data.logs.length > 0) {
+            allLogs = data.logs.map(log => ({
+                time: log.timestamp ? log.timestamp.split(' ')[1]?.split(',')[0] || '--:--:--' : '--:--:--',
+                level: log.level.toLowerCase(),
+                category: log.category,
+                message: log.message
+            }));
+            logsLoaded = true;
+            console.log(`✅ Auto-loaded ${allLogs.length} logs from history`);
+        }
+    } catch (error) {
+        console.error('Failed to auto-load history:', error);
+    }
+}
 
 async function loadDetailedLogs() {
     // Load historical logs from file on first tab open
