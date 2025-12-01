@@ -11,7 +11,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.data.market_data import MarketData
+from src.data.market_data import MarketDataFetcher
 from src.ml.ensemble_predictor import get_ensemble_predictor
 from src.config.config_loader import get_config
 
@@ -66,7 +66,7 @@ def main():
         try:
             # Fetch and prepare data
             print(f"⏳ Fetching data for {symbol}...")
-            market_data = MarketData()
+            market_data = MarketDataFetcher()
             
             # Fetch OHLCV data
             df = market_data.fetch_ohlcv(symbol=symbol, limit=lookback_bars)
