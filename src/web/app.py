@@ -225,9 +225,19 @@ def api_logs():
 def api_logs_history():
     """Get historical logs from file"""
     try:
-        log_file = Path(__file__).parent.parent.parent / 'logs' / 'dashboard.log'
+        # Try trading.log first (main bot logs), fallback to dashboard.log
+        log_files = [
+            Path(__file__).parent.parent.parent / 'logs' / 'trading.log',
+            Path(__file__).parent.parent.parent / 'logs' / 'dashboard.log'
+        ]
         
-        if not log_file.exists():
+        log_file = None
+        for f in log_files:
+            if f.exists():
+                log_file = f
+                break
+        
+        if not log_file:
             return jsonify({
                 'logs': [],
                 'message': 'No log file found yet'
