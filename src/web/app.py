@@ -19,7 +19,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.config.config_loader import get_config
 
+# Setup logging to file
+log_dir = Path(__file__).parent.parent.parent / 'logs'
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / 'dashboard.log'
+
+# Configure file handler for persistent logs
+file_handler = logging.FileHandler(log_file, encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+
 logger = logging.getLogger(__name__)
+logger.addHandler(file_handler)
 
 # Initialize Flask app
 app = Flask(
@@ -200,10 +211,93 @@ def api_pause():
 
 @app.route('/api/logs')
 def api_logs():
-    """Get recent logs"""
+    """Get recent logs from memory"""
     return jsonify({
         'logs': bot_state['logs'][-100:]  # Last 100 log entries
     })
+
+
+@app.route('/api/logs/history')
+def api_logs_history():
+    """Get historical logs from file"""
+    try:
+        log_file = Path(__file__).parent.parent.parent / 'logs' / 'dashboard.log'
+        
+        if not log_file.exists():
+            return jsonify({
+                'logs': [],
+                'message': 'No log file found yet'
+            })
+        
+        # Read last 500 lines from log file
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            last_lines = lines[-500:] if len(lines) > 500 else lines
+        
+        # Parse logs into structured format
+        parsed_logs = []
+        for line in last_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Try to parse timestamp and message
+            try:
+                # Format: 2025-12-01 16:36:44,120 [INFO] message
+                parts = line.split('[', 1)
+                if len(parts) >= 2:
+                    timestamp_part = parts[0].strip()
+                    rest = parts[1]
+                    level_end = rest.find(']')
+                    if level_end > 0:
+                        level = rest[:level_end].strip()
+                        message = rest[level_end+1:].strip()
+                        
+                        # Categorize
+                        category = 'general'
+                        if '[NEWS]' in message or 'NEWS' in message:
+                            category = 'news'
+                        elif '[ML]' in message or 'prediction' in message.lower():
+                            category = 'ml'
+                        elif '[TRADE]' in message or 'сделк' in message.lower():
+                            category = 'trade'
+                        elif 'ERROR' in level or 'error' in message.lower():
+                            category = 'error'
+                        
+                        parsed_logs.append({
+                            'timestamp': timestamp_part,
+                            'level': level,
+                            'category': category,
+                            'message': message
+                        })
+                    else:
+                        # Fallback if can't parse properly
+                        parsed_logs.append({
+                            'timestamp': timestamp_part,
+                            'level': 'INFO',
+                            'category': 'general',
+                            'message': line
+                        })
+            except:
+                # If parsing fails, add raw line
+                parsed_logs.append({
+                    'timestamp': '',
+                    'level': 'INFO',
+                    'category': 'general',
+                    'message': line
+                })
+        
+        return jsonify({
+            'logs': parsed_logs,
+            'total': len(parsed_logs)
+        })
+        
+    except Exception as e:
+        logger.error(f'Error reading log history: {e}', exc_info=True)
+        return jsonify({
+            'logs': [],
+            'error': str(e)
+        }), 500
 
 
 @app.route('/api/news')

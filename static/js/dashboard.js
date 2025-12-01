@@ -742,10 +742,37 @@ function updateNewsSummary(news) {
 
 let allLogs = [];
 let currentFilter = 'all';
+let logsLoaded = false;
 
-function loadDetailedLogs() {
-    // In production, load from backend
-    // For now, use existing logs
+async function loadDetailedLogs() {
+    // Load historical logs from file on first tab open
+    if (!logsLoaded) {
+        try {
+            const response = await fetch('/api/logs/history');
+            const data = await response.json();
+            
+            if (data.logs && data.logs.length > 0) {
+                // Convert backend logs to frontend format
+                allLogs = data.logs.map(log => ({
+                    time: log.timestamp ? log.timestamp.split(' ')[1]?.split(',')[0] || '--:--:--' : '--:--:--',
+                    level: log.level.toLowerCase(),
+                    category: log.category,
+                    message: log.message
+                }));
+                
+                console.log(`Loaded ${allLogs.length} historical logs`);
+                addLog('info', `📜 Загружено ${allLogs.length} логов из истории`);
+            } else {
+                console.log('No historical logs found');
+            }
+            
+            logsLoaded = true;
+        } catch (error) {
+            console.error('Error loading historical logs:', error);
+            addLog('warning', '⚠️ Не удалось загрузить историю логов');
+        }
+    }
+    
     renderDetailedLogs();
 }
 
@@ -790,6 +817,41 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     });
 });
 
+// Load history button
+document.getElementById('btn-load-history')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-load-history');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Загрузка...';
+        
+        const response = await fetch('/api/logs/history');
+        const data = await response.json();
+        
+        if (data.logs && data.logs.length > 0) {
+            // Replace current logs with historical ones
+            allLogs = data.logs.map(log => ({
+                time: log.timestamp ? log.timestamp.split(' ')[1]?.split(',')[0] || '--:--:--' : '--:--:--',
+                level: log.level.toLowerCase(),
+                category: log.category,
+                message: log.message
+            }));
+            
+            renderDetailedLogs();
+            addLog('success', `✅ Загружено ${allLogs.length} логов из истории`);
+        } else {
+            addLog('warning', '⚠️ История логов пуста');
+        }
+    } catch (error) {
+        console.error('Error loading history:', error);
+        addLog('error', `❌ Ошибка загрузки истории: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+});
+
 // Export logs
 document.getElementById('btn-export-logs')?.addEventListener('click', () => {
     const text = allLogs.map(log => 
@@ -807,9 +869,11 @@ document.getElementById('btn-export-logs')?.addEventListener('click', () => {
 
 // Clear all logs
 document.getElementById('btn-clear-all-logs')?.addEventListener('click', () => {
-    if (confirm('Очистить все логи?')) {
+    if (confirm('Очистить все логи? (Это очистит только отображение, файл с логами сохранится)')) {
         allLogs = [];
+        logsLoaded = false; // Reset flag to allow reloading
         renderDetailedLogs();
+        addLog('info', '🗑️ Логи очищены (в памяти)');
     }
 });
 
