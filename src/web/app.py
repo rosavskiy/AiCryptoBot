@@ -232,13 +232,13 @@ def update_bot_state(**kwargs):
     broadcast_status_update()
 
 
-def run_web_server(host='0.0.0.0', port=5000, debug=False):
+def run_web_server(host='127.0.0.1', port=5000, debug=False):
     """Run Flask web server"""
     logger.info(f'[WEB] Starting web dashboard on http://{host}:{port}')
     socketio.run(app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
 
 
-def start_web_server_thread(host='0.0.0.0', port=5000):
+def start_web_server_thread(host='127.0.0.1', port=5000):
     """Start web server in separate thread"""
     thread = threading.Thread(
         target=run_web_server,
