@@ -529,6 +529,20 @@ def api_news():
 def handle_connect():
     """Client connected"""
     logger.info('[WEB] Client connected')
+    
+    # Sync bot status with actual trading thread state
+    global trading_bot_thread
+    if trading_bot_thread and trading_bot_thread.is_alive():
+        # Trading thread is running, update status
+        if bot_state['status'] == 'stopped':
+            bot_state['status'] = 'running'
+            if not bot_state['start_time']:
+                bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
+    else:
+        # No thread running
+        if bot_state['status'] == 'running':
+            bot_state['status'] = 'stopped'
+    
     emit('status_update', bot_state)
 
 
