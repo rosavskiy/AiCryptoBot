@@ -49,6 +49,14 @@ function connectWebSocket() {
     socket.on('log_update', (data) => {
         addLog(data.level.toLowerCase(), data.message);
     });
+    
+    socket.on('news_update', (data) => {
+        // Refresh news tab if active
+        const newsTab = document.getElementById('tab-news');
+        if (newsTab && newsTab.classList.contains('active')) {
+            loadNewsData();
+        }
+    });
 }
 
 // Load configuration
@@ -441,3 +449,388 @@ setInterval(() => {
         }
     }
 }, 1000);
+
+// ========================================
+// TABS FUNCTIONALITY
+// ========================================
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabName = btn.dataset.tab;
+        
+        // Update buttons
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update content
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        
+        // Load tab-specific data
+        if (tabName === 'news') {
+            loadNewsData();
+        } else if (tabName === 'logs') {
+            loadDetailedLogs();
+        }
+    });
+});
+
+// ========================================
+// NEWS TAB FUNCTIONALITY
+// ========================================
+
+let sentimentChart = null;
+let newsData = [];
+
+function initializeSentimentChart() {
+    const ctx = document.getElementById('sentiment-chart').getContext('2d');
+    sentimentChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Sentiment Score',
+                data: [],
+                borderColor: '#00d9ff',
+                backgroundColor: 'rgba(0, 217, 255, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    min: -1,
+                    max: 1,
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                    ticks: { color: '#a0a0a0' }
+                },
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                    ticks: { color: '#a0a0a0' }
+                }
+            }
+        }
+    });
+}
+
+async function loadNewsData() {
+    // Initialize chart if needed
+    if (!sentimentChart) {
+        initializeSentimentChart();
+    }
+    
+    // Fetch real news data from backend
+    try {
+        const response = await fetch('/api/news');
+        const data = await response.json();
+        
+        if (data.news && data.news.length > 0) {
+            displayNews(data.news);
+            updateNewsSummary(data.news);
+            updateSentimentChart(data.sentiment_history);
+        } else {
+            // Fallback to demo if no real data
+            displayDemoNews();
+        }
+    } catch (error) {
+        console.error('Failed to load news:', error);
+        displayDemoNews();
+    }
+}
+
+function displayNews(news) {
+    const container = document.getElementById('news-container');
+    
+    if (news.length === 0) {
+        container.innerHTML = '<div class="empty-state">Новостей пока нет</div>';
+        return;
+    }
+    
+    // Convert timestamps to readable format
+    const newsWithTime = news.map(item => ({
+        ...item,
+        timeAgo: getTimeAgo(item.timestamp)
+    }));
+    
+    container.innerHTML = newsWithTime.map(item => `
+        <div class="news-item ${item.category}">
+            <div class="news-header">
+                <span class="news-source">${item.source}</span>
+                <span class="news-time">${item.timeAgo}</span>
+            </div>
+            <div class="news-title">${item.title}</div>
+            <div class="news-footer">
+                <span class="news-sentiment-badge ${item.category}">
+                    ${item.category === 'positive' ? '😊' : item.category === 'negative' ? '☹️' : '😐'} 
+                    Sentiment: ${item.sentiment.toFixed(2)}
+                </span>
+            </div>
+        </div>
+    `).join('');
+    
+    document.getElementById('news-count').textContent = news.length;
+}
+
+function updateSentimentChart(sentimentHistory) {
+    if (!sentimentChart || !sentimentHistory || sentimentHistory.length === 0) {
+        return;
+    }
+    
+    const labels = sentimentHistory.map(s => {
+        const date = new Date(s.timestamp);
+        return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+    });
+    
+    const data = sentimentHistory.map(s => s.score);
+    
+    sentimentChart.data.labels = labels;
+    sentimentChart.data.datasets[0].data = data;
+    sentimentChart.update();
+}
+
+function getTimeAgo(timestamp) {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diffMs = now - time;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'только что';
+    if (diffMins < 60) return `${diffMins} мин назад`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} ч назад`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} дн назад`;
+}
+
+function displayDemoNews() {
+    const demoNews = [
+        {
+            title: 'Bitcoin reaches new all-time high amid institutional adoption',
+            source: 'CryptoPanic',
+            time: '5 минут назад',
+            sentiment: 0.85,
+            category: 'positive'
+        },
+        {
+            title: 'SEC delays decision on Bitcoin ETF applications',
+            source: 'CoinDesk',
+            time: '15 минут назад',
+            sentiment: -0.42,
+            category: 'negative'
+        },
+        {
+            title: 'Major exchange announces support for new trading pairs',
+            source: 'CryptoPanic',
+            time: '30 минут назад',
+            sentiment: 0.61,
+            category: 'positive'
+        },
+        {
+            title: 'Market analysis: Bitcoin consolidates before next move',
+            source: 'TradingView',
+            time: '1 час назад',
+            sentiment: 0.12,
+            category: 'neutral'
+        },
+        {
+            title: 'Regulatory concerns impact crypto market sentiment',
+            source: 'Reuters',
+            time: '2 часа назад',
+            sentiment: -0.65,
+            category: 'negative'
+        }
+    ];
+    
+    newsData = demoNews;
+    renderNews(demoNews);
+    updateNewsSummary(demoNews);
+}
+
+function renderNews(news) {
+    const container = document.getElementById('news-container');
+    
+    if (news.length === 0) {
+        container.innerHTML = '<div class="empty-state">Новостей пока нет</div>';
+        return;
+    }
+    
+    container.innerHTML = news.map(item => `
+        <div class="news-item ${item.category}">
+            <div class="news-header">
+                <span class="news-source">${item.source}</span>
+                <span class="news-time">${item.time}</span>
+            </div>
+            <div class="news-title">${item.title}</div>
+            <div class="news-footer">
+                <span class="news-sentiment-badge ${item.category}">
+                    ${item.category === 'positive' ? '😊' : item.category === 'negative' ? '☹️' : '😐'} 
+                    Sentiment: ${item.sentiment.toFixed(2)}
+                </span>
+            </div>
+        </div>
+    `).join('');
+    
+    document.getElementById('news-count').textContent = news.length;
+}
+
+function updateNewsSummary(news) {
+    const positive = news.filter(n => n.category === 'positive').length;
+    const neutral = news.filter(n => n.category === 'neutral').length;
+    const negative = news.filter(n => n.category === 'negative').length;
+    
+    document.getElementById('positive-count').textContent = positive;
+    document.getElementById('neutral-count').textContent = neutral;
+    document.getElementById('negative-count').textContent = negative;
+    
+    const avgSentiment = news.reduce((sum, n) => sum + n.sentiment, 0) / news.length;
+    document.getElementById('avg-sentiment').textContent = `Sentiment: ${avgSentiment.toFixed(2)}`;
+    
+    // Update chart
+    if (sentimentChart) {
+        const labels = news.map((_, i) => `${news.length - i}m ago`);
+        const data = news.map(n => n.sentiment);
+        
+        sentimentChart.data.labels = labels.reverse();
+        sentimentChart.data.datasets[0].data = data.reverse();
+        sentimentChart.update();
+    }
+    
+    // Update sources
+    const sources = {};
+    news.forEach(n => {
+        sources[n.source] = (sources[n.source] || 0) + 1;
+    });
+    
+    const sourcesList = document.getElementById('sources-list');
+    sourcesList.innerHTML = Object.entries(sources)
+        .map(([name, count]) => `
+            <div class="source-item">
+                <span class="source-name">${name}</span>
+                <span class="source-count">${count}</span>
+            </div>
+        `).join('');
+}
+
+// ========================================
+// DETAILED LOGS TAB
+// ========================================
+
+let allLogs = [];
+let currentFilter = 'all';
+
+function loadDetailedLogs() {
+    // In production, load from backend
+    // For now, use existing logs
+    renderDetailedLogs();
+}
+
+function renderDetailedLogs() {
+    const container = document.getElementById('logs-detailed');
+    const filtered = currentFilter === 'all' 
+        ? allLogs 
+        : allLogs.filter(log => log.category === currentFilter);
+    
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="log-entry info">
+                <span class="log-time">[--:--:--]</span>
+                <span class="log-category">[SYSTEM]</span>
+                <span class="log-message">Нет логов для отображения</span>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = filtered.map(log => `
+        <div class="log-entry ${log.category}">
+            <span class="log-time">[${log.time}]</span>
+            <span class="log-category">[${log.category.toUpperCase()}]</span>
+            <span class="log-message">${log.message}</span>
+        </div>
+    `).join('');
+    
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+}
+
+// Log filters
+document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentFilter = btn.dataset.filter;
+        
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        renderDetailedLogs();
+    });
+});
+
+// Export logs
+document.getElementById('btn-export-logs')?.addEventListener('click', () => {
+    const text = allLogs.map(log => 
+        `[${log.time}] [${log.category.toUpperCase()}] ${log.message}`
+    ).join('\n');
+    
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bot-logs-${new Date().toISOString()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+// Clear all logs
+document.getElementById('btn-clear-all-logs')?.addEventListener('click', () => {
+    if (confirm('Очистить все логи?')) {
+        allLogs = [];
+        renderDetailedLogs();
+    }
+});
+
+// Enhanced addLog to categorize logs
+const originalAddLog = addLog;
+addLog = function(level, message) {
+    // Call original
+    originalAddLog(level, message);
+    
+    // Categorize and store
+    let category = 'info';
+    if (message.includes('новост') || message.includes('news') || message.includes('📰')) {
+        category = 'news';
+    } else if (message.includes('ML') || message.includes('модел') || message.includes('🤖') || message.includes('🧠')) {
+        category = 'ml';
+    } else if (message.includes('сделк') || message.includes('позиц') || message.includes('trade') || message.includes('🎯')) {
+        category = 'trade';
+    } else if (level === 'error' || message.includes('ошибк') || message.includes('❌')) {
+        category = 'error';
+    }
+    
+    const now = new Date();
+    const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+    
+    allLogs.push({
+        time: time,
+        level: level,
+        category: category,
+        message: message
+    });
+    
+    // Keep only last 500 logs
+    if (allLogs.length > 500) {
+        allLogs = allLogs.slice(-500);
+    }
+};
+

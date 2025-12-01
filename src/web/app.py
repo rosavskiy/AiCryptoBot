@@ -50,7 +50,9 @@ bot_state = {
     'sharpe_ratio': 0.0,
     'last_signal': None,
     'ml_predictions': [],
-    'logs': []
+    'logs': [],
+    'news': [],  # News feed
+    'sentiment_history': []  # Sentiment over time
 }
 
 # Bot controller reference
@@ -182,6 +184,15 @@ def api_logs():
     })
 
 
+@app.route('/api/news')
+def api_news():
+    """Get news feed and sentiment"""
+    return jsonify({
+        'news': bot_state['news'][-50:],  # Last 50 news items
+        'sentiment_history': bot_state['sentiment_history'][-20:]  # Last 20 sentiment readings
+    })
+
+
 # WebSocket events
 @socketio.on('connect')
 def handle_connect():
@@ -214,10 +225,24 @@ def broadcast_trade_update(trade_data):
 
 def broadcast_log(log_data):
     """Broadcast log message"""
+    # Determine category
+    message = log_data.get('message', '')
+    category = 'info'
+    
+    if any(word in message.lower() for word in ['новост', 'news', '📰', 'sentiment']):
+        category = 'news'
+    elif any(word in message.lower() for word in ['ml', 'модел', '🤖', '🧠', 'lstm', 'finbert', 'ensemble']):
+        category = 'ml'
+    elif any(word in message.lower() for word in ['сделк', 'позиц', 'trade', '🎯', 'open', 'close', 'buy', 'sell']):
+        category = 'trade'
+    elif log_data.get('level', 'INFO').upper() in ['ERROR', 'CRITICAL'] or '❌' in message:
+        category = 'error'
+    
     bot_state['logs'].append({
         'timestamp': datetime.now().isoformat(),
         'level': log_data.get('level', 'INFO'),
-        'message': log_data.get('message', '')
+        'message': message,
+        'category': category
     })
     # Keep only last 200 logs
     if len(bot_state['logs']) > 200:
@@ -230,6 +255,65 @@ def update_bot_state(**kwargs):
     """Update bot state and broadcast"""
     bot_state.update(kwargs)
     broadcast_status_update()
+
+
+def add_news_item(title, source, sentiment, category='neutral'):
+    """Add news item to feed"""
+    news_item = {
+        'timestamp': datetime.now().isoformat(),
+        'title': title,
+        'source': source,
+        'sentiment': sentiment,
+        'category': category  # positive, neutral, negative
+    }
+    bot_state['news'].append(news_item)
+    
+    # Keep only last 100 news items
+    if len(bot_state['news']) > 100:
+        bot_state['news'] = bot_state['news'][-100:]
+    
+    # Broadcast news update
+    socketio.emit('news_update', news_item, namespace='/')
+    
+    # Log news
+    sentiment_emoji = '😊' if category == 'positive' else '☹️' if category == 'negative' else '😐'
+    broadcast_log({
+        'level': 'INFO',
+        'message': f'📰 Новость: {title[:50]}... (sentiment: {sentiment:.2f} {sentiment_emoji})'
+    })
+
+
+def update_sentiment(sentiment_score):
+    """Update sentiment history"""
+    sentiment_item = {
+        'timestamp': datetime.now().isoformat(),
+        'score': sentiment_score
+    }
+    bot_state['sentiment_history'].append(sentiment_item)
+    
+    # Keep only last 50 readings
+    if len(bot_state['sentiment_history']) > 50:
+        bot_state['sentiment_history'] = bot_state['sentiment_history'][-50:]
+    
+    # Log sentiment update
+    broadcast_log({
+        'level': 'INFO',
+        'message': f'📊 Sentiment обновлен: {sentiment_score:.2f} ({get_sentiment_label(sentiment_score)})'
+    })
+
+
+def get_sentiment_label(score):
+    """Get sentiment label from score"""
+    if score > 0.3:
+        return 'Очень позитивный'
+    elif score > 0.1:
+        return 'Позитивный'
+    elif score > -0.1:
+        return 'Нейтральный'
+    elif score > -0.3:
+        return 'Негативный'
+    else:
+        return 'Очень негативный'
 
 
 def run_web_server(host='127.0.0.1', port=5000, debug=False):
@@ -254,7 +338,24 @@ def start_demo_updates():
     """Start demo data updates for testing"""
     import random
     
+    demo_news_titles = [
+        'Bitcoin reaches new all-time high amid institutional adoption',
+        'SEC delays decision on Bitcoin ETF applications',
+        'Major exchange announces support for new trading pairs',
+        'Market analysis: Bitcoin consolidates before next move',
+        'Regulatory concerns impact crypto market sentiment',
+        'Ethereum upgrade goes live successfully',
+        'Whale moves $100M in Bitcoin',
+        'New DeFi protocol gains traction',
+        'Fed announces interest rate decision',
+        'Crypto trading volume surges 40%'
+    ]
+    
+    demo_sources = ['CryptoPanic', 'CoinDesk', 'TradingView', 'Reuters', 'Bloomberg']
+    
     def update_demo_data():
+        news_counter = 0
+        
         while True:
             if bot_state['status'] == 'running':
                 # Simulate balance changes
@@ -263,11 +364,28 @@ def start_demo_updates():
                 bot_state['total_pnl'] = bot_state['balance'] - bot_state['initial_balance']
                 bot_state['total_pnl_pct'] = (bot_state['total_pnl'] / bot_state['initial_balance']) * 100
                 
+                # Random news (every 10 cycles = ~20 seconds)
+                if news_counter % 10 == 0 and random.random() < 0.5:
+                    title = random.choice(demo_news_titles)
+                    source = random.choice(demo_sources)
+                    sentiment = random.uniform(-0.8, 0.9)
+                    category = 'positive' if sentiment > 0.2 else 'negative' if sentiment < -0.2 else 'neutral'
+                    
+                    add_news_item(title, source, sentiment, category)
+                    
+                    # Update average sentiment every few news items
+                    if len(bot_state['news']) > 0:
+                        avg_sentiment = sum(n['sentiment'] for n in bot_state['news'][-10:]) / min(10, len(bot_state['news']))
+                        update_sentiment(avg_sentiment)
+                
+                news_counter += 1
+                
                 # Random log messages
                 if random.random() < 0.1:
                     messages = [
                         ('INFO', '📊 Анализ рынка...'),
                         ('INFO', '🤖 ML модель: BUY signal detected (65% confidence)'),
+                        ('INFO', '🧠 LSTM предсказание: цена вверх (68%)'),
                         ('SUCCESS', '✅ Позиция открыта: BTC/USDT LONG @ $95,234'),
                         ('INFO', '📈 Обновление индикаторов...'),
                         ('WARNING', '⚠️ Низкая волатильность рынка'),
@@ -329,6 +447,7 @@ def start_demo_updates():
     demo_thread = threading.Thread(target=update_demo_data, daemon=True)
     demo_thread.start()
     logger.info('[WEB] Demo mode enabled - generating test data')
+
 
 
 if __name__ == '__main__':

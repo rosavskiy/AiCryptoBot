@@ -34,6 +34,21 @@
             </div>
         </header>
 
+        <!-- Navigation Tabs -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" data-tab="overview">
+                <i class="fas fa-chart-line"></i> Обзор
+            </button>
+            <button class="tab-btn" data-tab="news">
+                <i class="fas fa-newspaper"></i> Новости
+            </button>
+            <button class="tab-btn" data-tab="logs">
+                <i class="fas fa-terminal"></i> Логи
+            </button>
+        </div>
+
+        <!-- Tab: Overview -->
+        <div class="tab-content active" id="tab-overview">
         <!-- Stats Cards -->
         <div class="stats-grid">
             <div class="stat-card">
@@ -232,6 +247,130 @@
                 </div>
             </div>
         </div>
+        </div> <!-- End tab-overview -->
+
+        <!-- Tab: News -->
+        <div class="tab-content" id="tab-news">
+            <div class="grid-layout">
+                <div class="main-content">
+                    <!-- Sentiment Chart -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-chart-area"></i> График Sentiment</h3>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="sentiment-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Latest News -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-newspaper"></i> Последние новости</h3>
+                            <div class="news-stats">
+                                <span class="badge" id="news-count">0</span>
+                                <span class="news-sentiment" id="avg-sentiment">Sentiment: 0.00</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="news-container" id="news-container">
+                                <div class="empty-state">Новостей пока нет</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar">
+                    <!-- Sentiment Summary -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-chart-pie"></i> Сводка Sentiment</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="sentiment-summary">
+                                <div class="sentiment-item positive">
+                                    <i class="fas fa-smile"></i>
+                                    <div>
+                                        <div class="sentiment-label">Позитивные</div>
+                                        <div class="sentiment-count" id="positive-count">0</div>
+                                    </div>
+                                </div>
+                                <div class="sentiment-item neutral">
+                                    <i class="fas fa-meh"></i>
+                                    <div>
+                                        <div class="sentiment-label">Нейтральные</div>
+                                        <div class="sentiment-count" id="neutral-count">0</div>
+                                    </div>
+                                </div>
+                                <div class="sentiment-item negative">
+                                    <i class="fas fa-frown"></i>
+                                    <div>
+                                        <div class="sentiment-label">Негативные</div>
+                                        <div class="sentiment-count" id="negative-count">0</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- News Sources -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-rss"></i> Источники</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="sources-list" id="sources-list">
+                                <div class="empty-state">Нет данных</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div> <!-- End tab-news -->
+
+        <!-- Tab: Logs -->
+        <div class="tab-content" id="tab-logs">
+            <div class="logs-page">
+                <div class="logs-controls">
+                    <div class="log-filters">
+                        <button class="filter-btn active" data-filter="all">
+                            <i class="fas fa-list"></i> Все
+                        </button>
+                        <button class="filter-btn" data-filter="news">
+                            <i class="fas fa-newspaper"></i> Новости
+                        </button>
+                        <button class="filter-btn" data-filter="ml">
+                            <i class="fas fa-brain"></i> ML
+                        </button>
+                        <button class="filter-btn" data-filter="trade">
+                            <i class="fas fa-exchange-alt"></i> Сделки
+                        </button>
+                        <button class="filter-btn" data-filter="error">
+                            <i class="fas fa-exclamation-triangle"></i> Ошибки
+                        </button>
+                    </div>
+                    <div class="log-actions">
+                        <button class="btn-sm" id="btn-export-logs">
+                            <i class="fas fa-download"></i> Экспорт
+                        </button>
+                        <button class="btn-sm" id="btn-clear-all-logs">
+                            <i class="fas fa-trash"></i> Очистить
+                        </button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="logs-detailed" id="logs-detailed">
+                            <div class="log-entry info">
+                                <span class="log-time">[--:--:--]</span>
+                                <span class="log-category">[SYSTEM]</span>
+                                <span class="log-message">Ожидание запуска...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div> <!-- End tab-logs -->
 
         <!-- Footer -->
         <footer class="footer">
