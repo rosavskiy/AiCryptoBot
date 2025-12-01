@@ -27,7 +27,11 @@ log_file = log_dir / 'dashboard.log'
 # Configure file handler for persistent logs
 file_handler = logging.FileHandler(log_file, encoding='utf-8')
 file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+# Use local time in logs
+import time
+file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+# Make sure we use local time, not UTC
+logging.Formatter.converter = time.localtime
 
 logger = logging.getLogger(__name__)
 logger.addHandler(file_handler)
