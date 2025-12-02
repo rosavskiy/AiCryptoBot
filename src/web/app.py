@@ -150,7 +150,11 @@ def dashboard():
 @app.route('/api/status')
 def api_status():
     """Get bot status"""
-    return jsonify(bot_state)
+    try:
+        return jsonify(get_serializable_bot_state())
+    except Exception as e:
+        logger.error(f'Error serializing status: {e}', exc_info=True)
+        return jsonify({'error': str(e), 'status': 'error'}), 500
 
 
 @app.route('/api/config')
@@ -347,8 +351,22 @@ def update_bot_state_from_executor(result):
                     trades_df = trading_bot_instance.trade_logger.get_trades(limit=100)
                     # Check if DataFrame is not empty
                     if not trades_df.empty:
-                        # Convert DataFrame to list of dicts
-                        valid_trades = trades_df.to_dict('records')
+                        # Convert DataFrame to list of dicts - БЕЗОПАСНО!
+                        valid_trades = []
+                        for _, row in trades_df.iterrows():
+                            trade_dict = {
+                                'symbol': str(row.get('symbol', '')),
+                                'side': str(row.get('side', '')),
+                                'entry_price': float(row.get('entry_price', 0)),
+                                'exit_price': float(row.get('exit_price', 0)),
+                                'quantity': float(row.get('quantity', 0)),
+                                'pnl': float(row.get('pnl', 0)),
+                                'pnl_pct': float(row.get('pnl_pct', 0)),
+                                'timestamp': str(row.get('timestamp', '')),
+                                'exit_reason': str(row.get('exit_reason', ''))
+                            }
+                            valid_trades.append(trade_dict)
+                        
                         bot_state['closed_trades'] = valid_trades[-50:]  # Last 50 trades
                         bot_state['total_trades'] = len(valid_trades)
                         bot_state['winning_trades'] = sum(1 for t in valid_trades if t.get('pnl', 0) > 0)
@@ -552,7 +570,7 @@ def make_serializable(obj):
     elif isinstance(obj, (int, float)):
         # Handle numpy types and ensure valid floats
         if hasattr(obj, 'item'):  # numpy scalar
-            return obj.item()
+            return float(obj.item())
         return float(obj) if isinstance(obj, float) else int(obj)
     elif isinstance(obj, dict):
         return {str(k): make_serializable(v) for k, v in obj.items()}
@@ -561,9 +579,7 @@ def make_serializable(obj):
     elif hasattr(obj, 'isoformat'):  # datetime objects
         return obj.isoformat()
     elif hasattr(obj, 'tolist'):  # numpy arrays
-        return obj.tolist()
-    elif hasattr(obj, 'to_dict'):  # pandas objects
-        return make_serializable(obj.to_dict())
+        return make_serializable(obj.tolist())
     else:
         # Last resort - convert to string
         return str(obj)
@@ -609,13 +625,21 @@ def handle_connect():
     logger.info('[WEB] Client connected')
     
     # Sync bot status with actual trading thread state
-    global trading_bot_thread
+    global trading_bot_thread, trading_bot_instance
     if trading_bot_thread and trading_bot_thread.is_alive():
         # Trading thread is running, update status
         if bot_state['status'] == 'stopped':
             bot_state['status'] = 'running'
             if not bot_state['start_time']:
                 bot_state['start_time'] = int(datetime.now().timestamp() * 1000)
+        
+        # Force sync positions when client connects
+        if trading_bot_instance:
+            try:
+                update_bot_state_from_executor(None)
+                logger.info(f'[WEB] Synced state on connect: {len(bot_state["open_positions"])} positions')
+            except Exception as sync_err:
+                logger.warning(f'[WEB] Could not sync on connect: {sync_err}')
     else:
         # No thread running
         if bot_state['status'] == 'running':
@@ -624,8 +648,9 @@ def handle_connect():
     try:
         safe_state = get_serializable_bot_state()
         emit('status_update', safe_state)
+        logger.info(f'[WEB] Sent state with {len(bot_state["open_positions"])} positions')
     except Exception as e:
-        logger.error(f'[WEB] Failed to emit status_update on connect: {e}')
+        logger.error(f'[WEB] Failed to emit status_update on connect: {e}', exc_info=True)
         # Send minimal state
         emit('status_update', {'status': 'stopped', 'balance': 10000.0})
 
@@ -662,9 +687,11 @@ def broadcast_status_update():
     """Broadcast status update to all connected clients"""
     try:
         safe_state = get_serializable_bot_state()
+        logger.debug(f'[WEB] Broadcasting: {len(safe_state.get("open_positions", []))} positions, status={safe_state.get("status")}')
         socketio.emit('status_update', safe_state, namespace='/')
+        logger.debug(f'[WEB] Broadcast complete')
     except Exception as e:
-        logger.error(f'[WEB] Failed to broadcast status_update: {e}')
+        logger.error(f'[WEB] Failed to broadcast status_update: {e}', exc_info=True)
 
 
 def broadcast_trade_update(trade_data):
